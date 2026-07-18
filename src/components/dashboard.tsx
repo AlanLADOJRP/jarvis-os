@@ -348,6 +348,27 @@ export function Dashboard() {
       return;
     }
 
+    if (action.intent === "clear_day") {
+      const targetDate = action.date ?? chicagoDateString();
+      const response = await fetch(`/api/entries?date=${encodeURIComponent(targetDate)}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as { success?: boolean; deletedCount?: number; date?: string; error?: string };
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error ?? "Unable to clear that day.");
+      }
+
+      await refreshNutritionViews(true);
+      persistMessages([
+        ...messages,
+        {
+          role: "assistant",
+          content: `Done. Cleared ${payload.deletedCount ?? 0} nutrition entr${(payload.deletedCount ?? 0) === 1 ? "y" : "ies"} for ${payload.date ?? targetDate}.`,
+        },
+      ]);
+      return;
+    }
+
     if (action.intent === "query_history") {
       let fallbackDate = new Date();
       fallbackDate = new Date(fallbackDate.setDate(fallbackDate.getDate() - 1));
@@ -583,9 +604,7 @@ export function Dashboard() {
     const confirmed = window.confirm("Clear all entries for today?");
     if (!confirmed) return;
 
-    for (const entry of entries) {
-      await fetch(`/api/entries/${entry.id}`, { method: "DELETE" });
-    }
+    await fetch(`/api/entries?date=${encodeURIComponent(chicagoDateString())}`, { method: "DELETE" });
     await refreshNutritionViews(true);
     pushToast("Today cleared.");
   }

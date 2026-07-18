@@ -169,6 +169,20 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       return `Today so far: ${calories} calories, ${water} oz of water, and gym is ${gym ? gym.status.toLowerCase() : "not logged yet"}.`;
     }
 
+    if (action.intent === "clear_day") {
+      const fallbackToday = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+      const targetDate = action.date ?? (data?.todayKey ?? fallbackToday);
+      const response = await fetch(`/api/entries?date=${encodeURIComponent(targetDate)}`, {
+        method: "DELETE",
+      });
+      const payload = (await response.json()) as { success?: boolean; deletedCount?: number; date?: string; error?: string };
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error ?? "Unable to clear today's nutrition entries.");
+      }
+      await refresh(true);
+      return `Done. Cleared ${payload.deletedCount ?? 0} nutrition entr${(payload.deletedCount ?? 0) === 1 ? "y" : "ies"} for ${payload.date ?? "today"}.`;
+    }
+
     if (action.intent === "query_history") {
       const response = await fetch(`/api/entries?date=${action.date ?? ""}`);
       const payload = (await response.json()) as { entries?: CalorieEntryRecord[]; error?: string };

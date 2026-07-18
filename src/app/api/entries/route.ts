@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { bulkCreateEntries, getEntriesForDate, getEntriesForMonth } from "@/server/entries";
+import { bulkCreateEntries, clearDay, getEntriesForDate, getEntriesForMonth } from "@/server/entries";
 import { chicagoDateString } from "@/lib/time";
 import { mealSchema } from "@/types/chat";
 
@@ -71,6 +71,22 @@ export async function POST(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to create entries." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const dateParam = url.searchParams.get("date");
+    const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : chicagoDateString();
+
+    const deletedCount = await clearDay(date);
+    return NextResponse.json({ success: true, deletedCount, date });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to clear entries." },
       { status: 500 },
     );
   }

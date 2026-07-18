@@ -137,6 +137,15 @@ const completeTaskSchema = z.object({
   clarificationQuestion: z.string().optional(),
 });
 
+const clearDaySchema = z.object({
+  intent: z.literal("clear_day"),
+  reply: z.string(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  confidence: z.number().min(0).max(1),
+  needsConfirmation: z.boolean(),
+  clarificationQuestion: z.string().optional(),
+});
+
 const undoLastSchema = z.object({
   intent: z.literal("undo_last"),
   reply: z.string(),
@@ -164,6 +173,7 @@ export const assistantActionSchema = z.discriminatedUnion("intent", [
   createTaskSchema,
   queryTasksSchema,
   completeTaskSchema,
+  clearDaySchema,
   undoLastSchema,
   unknownSchema,
 ]);

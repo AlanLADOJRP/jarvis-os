@@ -10,6 +10,7 @@ import {
   type ChatMessage,
   inferMealByChicagoTime,
 } from "@/types/chat";
+import { chicagoDateString } from "@/lib/time";
 import type { NutritionItem } from "@/types/nutrition";
 import { findFoodMatch, parseIngredientTotals } from "@/lib/nutrition";
 
@@ -60,6 +61,8 @@ function buildAssistantMessage(action: AssistantAction): string {
       return `Got it. I can add \"${action.title}\" to your to-do list.`;
     case "complete_task":
       return `Got it. I can mark \"${action.searchText}\" as complete.`;
+    case "clear_day":
+      return "Got it. I can clear today's nutrition entries.";
     case "query_tasks":
       return "Sure. I can pull up your current tasks.";
     case "query_today":
@@ -102,6 +105,12 @@ function extractTaskTitle(message: string): string {
     .trim();
 }
 
+function isClearNutritionRequest(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (!/(clear|erase|delete|remove)/.test(lower)) return false;
+  return /(nutrition|food|foods|calorie|calories|entries|intake|meal|meals)/.test(lower);
+}
+
 function classifyIntentHeuristically(message: string, catalog: NutritionItem[]): AssistantIntent | null {
   const lower = message.toLowerCase().trim();
 
@@ -118,6 +127,7 @@ function classifyIntentHeuristically(message: string, catalog: NutritionItem[]):
     if (/(how much water|water today|hydration today)/.test(lower)) return "water_question";
     return "water_log";
   }
+  if (isClearNutritionRequest(message)) return "nutrition_log";
   if (/(how many calories|calories left|what did i eat|food today|nutrition today|yesterday|history)/.test(lower)) return "nutrition_question";
 
   const matched = findFoodMatch(message, catalog);
@@ -169,8 +179,12 @@ async function classifyIntentWithModel(context: RouterContext): Promise<Assistan
   const content = completion.choices[0]?.message?.content;
   if (!content) return "unknown";
 
-  const parsed = assistantIntentClassificationSchema.safeParse(JSON.parse(content));
-  return parsed.success ? parsed.data.intent : "unknown";
+  try {
+    const parsed = assistantIntentClassificationSchema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data.intent : "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 function buildResponse(intent: AssistantIntent, message: string, actions: AssistantAction[] = []): AssistantResponse {
@@ -178,6 +192,16 @@ function buildResponse(intent: AssistantIntent, message: string, actions: Assist
 }
 
 function parseNutritionLogAction(message: string, catalog: NutritionItem[]): AssistantAction {
+  if (isClearNutritionRequest(message)) {
+    return {
+      intent: "clear_day",
+      reply: "I can clear all nutrition entries for today.",
+      date: chicagoDateString(),
+      confidence: 0.96,
+      needsConfirmation: false,
+    };
+  }
+
   const matched = findFoodMatch(message, catalog);
   const bowlStyle = message.toLowerCase().includes("bowl") || message.toLowerCase().includes("with");
 

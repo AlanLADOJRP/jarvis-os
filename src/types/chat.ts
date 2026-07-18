@@ -139,7 +139,13 @@ export const assistantActionSchema = z.discriminatedUnion("intent", [
   unknownSchema,
 ]);
 
+export const assistantResponseSchema = z.object({
+  message: z.string().min(1),
+  actions: z.array(assistantActionSchema).default([]),
+});
+
 export type AssistantAction = z.infer<typeof assistantActionSchema>;
+export type AssistantResponse = z.infer<typeof assistantResponseSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
 export function inferMealByChicagoTime(now = new Date()): MealType {

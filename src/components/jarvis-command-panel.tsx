@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Brain, Send, Sparkles } from "lucide-react";
-import type { AssistantAction, ChatMessage } from "@/types/chat";
+import type { AssistantAction, AssistantResponse, ChatMessage } from "@/types/chat";
 import type { CalorieEntryRecord, NutritionItem } from "@/types/nutrition";
 import { mergeCatalogs, parseIngredientTotals } from "@/lib/nutrition";
 import { useDashboardData } from "@/lib/dashboard-client";
@@ -37,7 +37,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       "I ate 2 eggs and toast",
       "I went to the gym today",
       "I drank a cup of water",
-      "Remind me to pick up groceries",
+      "I need to remember to pick up groceries",
     ],
     [],
   );
@@ -48,13 +48,13 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
     requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }));
   }
 
-  async function executeAction(action: AssistantAction, userMessage: string) {
+  async function runAction(action: AssistantAction, userMessage: string, assistantMessage: string): Promise<string> {
+    if (action.intent === "unknown") {
+      return action.clarificationQuestion ?? assistantMessage;
+    }
+
     if (action.needsConfirmation && action.clarificationQuestion) {
-      persistMessages([
-        ...messages,
-        { role: "assistant", content: `${action.reply}\n\n${action.clarificationQuestion}` },
-      ]);
-      return;
+      return `${assistantMessage}\n\n${action.clarificationQuestion}`;
     }
 
     if (action.intent === "log_food") {
@@ -74,8 +74,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
           ? `\n\n${parsed.lines.map((line) => `${line.quantity > 1 ? `${line.quantity}x ` : ""}${line.name} - ${line.calories} cal`).join("\n")}`
           : "";
       await refresh(true);
-      persistMessages([...messages, { role: "assistant", content: `${action.reply}${breakdown}` }]);
-      return;
+      return `${assistantMessage}${breakdown}`;
     }
 
     if (action.intent === "log_water") {
@@ -87,8 +86,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to log water.");
       await refresh(true);
-      persistMessages([...messages, { role: "assistant", content: `${action.reply} Logged ${action.ounces} oz.` }]);
-      return;
+      return assistantMessage;
     }
 
     if (action.intent === "log_gym") {
@@ -113,8 +111,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to log gym activity.");
       await refresh(true);
-      persistMessages([...messages, { role: "assistant", content: action.reply }]);
-      return;
+      return assistantMessage;
     }
 
     if (action.intent === "create_task") {
@@ -131,31 +128,24 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       const payload = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to create task.");
       await refresh(true);
-      persistMessages([...messages, { role: "assistant", content: action.reply }]);
-      return;
+      return assistantMessage;
     }
 
     if (action.intent === "query_tasks") {
       const tasks = (data?.tasks ?? []).filter((task) => task.status !== "DONE" && task.status !== "CANCELED");
-      const content = tasks.length === 0
-        ? "You have no open tasks right now."
-        : `Open tasks:\n${tasks.slice(0, 6).map((task) => `- ${task.title}`).join("\n")}`;
-      persistMessages([...messages, { role: "assistant", content }]);
-      return;
+      return tasks.length === 0
+        ? "You don't have any open tasks right now."
+        : `You currently have ${tasks.length} open task${tasks.length === 1 ? "" : "s"}:\n${tasks
+            .slice(0, 6)
+            .map((task) => `- ${task.title}`)
+            .join("\n")}`;
     }
 
     if (action.intent === "query_today") {
       const calories = (data?.entriesToday ?? []).reduce((sum, entry) => sum + entry.calories, 0);
       const water = data?.waterTodayOunces ?? 0;
       const gym = (data?.gymCurrentMonth ?? []).find((entry) => entry.date.slice(0, 10) === (data?.todayKey ?? ""));
-      persistMessages([
-        ...messages,
-        {
-          role: "assistant",
-          content: `Today: ${calories} calories, ${water} oz water, gym ${gym ? gym.status.toLowerCase() : "not logged"}.`,
-        },
-      ]);
-      return;
+      return `Today so far: ${calories} calories, ${water} oz of water, and gym is ${gym ? gym.status.toLowerCase() : "not logged yet"}.`;
     }
 
     if (action.intent === "query_history") {
@@ -163,27 +153,28 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       const payload = (await response.json()) as { entries?: CalorieEntryRecord[]; error?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to query history.");
       const entries = payload.entries ?? [];
-      persistMessages([
-        ...messages,
-        {
-          role: "assistant",
-          content: entries.length === 0
-            ? `No nutrition entries found for ${action.date ?? "that date"}.`
-            : `${action.date ?? "That day"}: ${entries.reduce((sum, entry) => sum + entry.calories, 0)} calories across ${entries.length} items.`,
-        },
-      ]);
-      return;
+      return entries.length === 0
+        ? `I couldn't find any nutrition entries for ${action.date ?? "that date"}.`
+        : `${action.date ?? "That day"} had ${entries.reduce((sum, entry) => sum + entry.calories, 0)} calories across ${entries.length} item${entries.length === 1 ? "" : "s"}.`;
     }
 
     if (action.intent === "delete_entry" || action.intent === "update_entry" || action.intent === "undo_last") {
-      persistMessages([
-        ...messages,
-        { role: "assistant", content: "Nutrition edit confirmations still live in the Nutrition workspace. Open Nutrition to complete that action." },
-      ]);
-      return;
+      return "I can handle that, but nutrition edit confirmations still live in the Nutrition workspace right now.";
     }
 
-    persistMessages([...messages, { role: "assistant", content: action.reply }]);
+    return assistantMessage;
+  }
+
+  async function runActions(actions: AssistantAction[], userMessage: string, assistantMessage: string): Promise<string> {
+    if (actions.length === 0) {
+      return assistantMessage;
+    }
+
+    let finalMessage = assistantMessage;
+    for (const action of actions) {
+      finalMessage = await runAction(action, userMessage, finalMessage);
+    }
+    return finalMessage;
   }
 
   async function submit(raw?: string) {
@@ -208,12 +199,20 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
         }),
       });
 
-      const payload = (await response.json()) as { action?: AssistantAction; error?: string };
-      if (!response.ok || !payload.action) {
+      const payload = (await response.json()) as Partial<AssistantResponse> & {
+        action?: AssistantAction;
+        error?: string;
+      };
+
+      if (!response.ok) {
         throw new Error(payload.error ?? "Could not process command.");
       }
 
-      await executeAction(payload.action, outgoing);
+      const actions = payload.actions ?? (payload.action ? [payload.action] : []);
+      const assistantMessage = payload.message ?? payload.action?.reply ?? "I need a little more detail to help with that.";
+      const finalMessage = await runActions(actions, outgoing, assistantMessage);
+
+      persistMessages([...nextMessages, { role: "assistant", content: finalMessage }]);
     } catch (error) {
       persistMessages([
         ...nextMessages,
@@ -244,7 +243,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
             <div>
               <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Main AI chat</p>
               <h3 className="mt-1 text-xl font-semibold text-white">JARVIS Command</h3>
-              <p className="mt-2 text-sm text-slate-300">Nutrition, gym, water, and to-do actions all run here.</p>
+              <p className="mt-2 text-sm text-slate-300">Talk naturally. JARVIS will understand nutrition, gym, water, and to-do actions.</p>
             </div>
             <Brain size={18} className="text-cyan-200" />
           </div>
@@ -254,7 +253,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
           <div className="space-y-3">
             <div className={`${collapsible ? "max-h-56" : "max-h-80"} overflow-y-auto space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3`}>
               {messages.length === 0 ? (
-                <p className="text-sm text-slate-300">Try: &quot;I went to the gym today&quot;, &quot;I drank a cup of water&quot;, or &quot;Remind me to call the dentist&quot;.</p>
+                <p className="text-sm text-slate-300">Try talking normally: &quot;I went to the gym today&quot;, &quot;I just drank a cup of water&quot;, or &quot;I need to remember to call Discount Tire&quot;.</p>
               ) : null}
               {messages.map((message, index) => (
                 <div key={`${message.role}-${index}`} className={message.role === "user" ? "text-right" : "text-left"}>
@@ -290,7 +289,7 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
                     void submit();
                   }
                 }}
-                placeholder="Tell JARVIS what you did..."
+                placeholder="Talk to JARVIS naturally..."
                 className="w-full resize-none rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-cyan-400"
               />
               <button

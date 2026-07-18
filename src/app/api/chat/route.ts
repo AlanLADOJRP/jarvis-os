@@ -2,7 +2,8 @@ import { GymStatus, TaskPriority, WorkoutType } from "@prisma/client";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { assistantActionSchema, inferMealByChicagoTime } from "@/types/chat";
+import { assistantActionSchema, assistantResponseSchema, inferMealByChicagoTime } from "@/types/chat";
+import type { AssistantAction } from "@/types/chat";
 import type { NutritionItem } from "@/types/nutrition";
 import { mergeCatalogs, parseIngredientTotals, findFoodMatch } from "@/lib/nutrition";
 import { getServerEnv } from "@/lib/env";
@@ -31,7 +32,7 @@ const requestSchema = z.object({
   ),
 });
 
-function fallbackAction(message: string, catalog: NutritionItem[]) {
+function fallbackAction(message: string, catalog: NutritionItem[]): AssistantAction {
   const lower = message.toLowerCase();
 
   const waterMatch = lower.match(/(\d+(?:\.\d+)?)\s*(oz|ounce|ounces)\b/);
@@ -87,9 +88,9 @@ function fallbackAction(message: string, catalog: NutritionItem[]) {
     };
   }
 
-  if (/(remind me to|add task|todo|to do)/.test(lower)) {
+  if (/(remind me to|remember to|need to remember to|i need to remember to|add task|todo|to do)/.test(lower)) {
     const title = message
-      .replace(/^(remind me to|add task|todo|to do)\s*/i, "")
+      .replace(/^(i\s+need\s+to\s+remember\s+to|need\s+to\s+remember\s+to|remember\s+to|remind\s+me\s+to|add\s+task|todo|to\s+do)\s*/i, "")
       .trim();
 
     return {
@@ -206,6 +207,52 @@ function fallbackAction(message: string, catalog: NutritionItem[]) {
   };
 }
 
+function buildAssistantMessage(action: z.infer<typeof assistantActionSchema>): string {
+  switch (action.intent) {
+    case "log_food":
+      return action.needsConfirmation && action.clarificationQuestion
+        ? `I think I understood most of that. ${action.clarificationQuestion}`
+        : "Got it. I can log that meal for you.";
+    case "log_water":
+      return `Got it. I can log ${action.ounces} oz of water.`;
+    case "log_gym":
+      return action.status === GymStatus.MISSED
+        ? "Understood. I can mark today as a missed gym day."
+        : "Got it. I can log a gym entry for today.";
+    case "create_task":
+      return `Got it. I can add \"${action.title}\" to your to-do list.`;
+    case "query_tasks":
+      return "Sure. I can pull up your current tasks.";
+    case "query_today":
+      return "Sure. Here is your current status for today.";
+    case "query_history":
+      return "Sure. I can look that up.";
+    case "delete_entry":
+      return "I can help remove that nutrition entry once you confirm it.";
+    case "update_entry":
+      return "I can help update that entry once you confirm the change.";
+    case "undo_last":
+      return "I can undo your most recent nutrition entry once you confirm it.";
+    case "unknown":
+      return action.clarificationQuestion ?? action.reply;
+  }
+}
+
+function normalizeAction(action: z.infer<typeof assistantActionSchema>): z.infer<typeof assistantActionSchema> {
+  if (action.confidence < 0.8 && action.intent !== "query_today" && action.intent !== "query_tasks") {
+    return {
+      ...action,
+      needsConfirmation: true,
+      clarificationQuestion:
+        "clarificationQuestion" in action
+          ? (action.clarificationQuestion ?? "Could you clarify that request?")
+          : "Could you clarify that request?",
+    };
+  }
+
+  return action;
+}
+
 export async function POST(request: Request) {
   try {
     const env = getServerEnv();
@@ -223,8 +270,11 @@ export async function POST(request: Request) {
     const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
     const systemPrompt = [
-      "You are a structured intent parser for JARVIS OS.",
-      "Return only a JSON object matching the required schema.",
+      "You are JARVIS OS, a conversational assistant that can also trigger structured actions.",
+      "Return only a JSON object with this shape: { message: string, actions: AssistantAction[] }.",
+      "The message should sound natural, concise, and conversational, like a capable assistant replying to the user.",
+      "Use actions only when the user is asking you to log, update, create, or fetch something actionable.",
+      "If the user is unclear, return a natural clarification message and an empty actions array.",
       "Never invent nutrition values when an item exists in provided catalog.",
       "Use catalog values exactly and compute quantities like double/triple/2x/half.",
       "Prefer one summarized entry for restaurant bowls.",
@@ -232,8 +282,9 @@ export async function POST(request: Request) {
       "For water, convert 1 cup to 8 ounces and 1 bottle to 16 ounces unless the user provides ounces.",
       "For gym, use COMPLETED when the user says they went or worked out, and MISSED when they say they skipped or missed.",
       "For tasks, return concise task titles without extra filler.",
+      "Treat reminder phrasing like 'remember to', 'need to remember to', or 'I need to remember to' as task creation.",
       "If confidence < 0.8, set needsConfirmation=true and include clarificationQuestion.",
-      "Do not claim an entry was saved; only propose actions.",
+      "Do not claim an entry was saved in the message; describe what you can do or what you understood.",
       "Meal windows in America/Chicago: Breakfast 4:00-10:59, Lunch 11:00-15:59, Dinner 16:00-21:59, Snack 22:00-3:59.",
       "Support references to recent context, like 'make that three' or 'remove that'.",
     ].join("\n");
@@ -262,7 +313,7 @@ export async function POST(request: Request) {
       2,
     );
 
-    let actionRaw: unknown;
+    let responseRaw: unknown;
 
     try {
       const completion = await openai.chat.completions.create({
@@ -277,32 +328,42 @@ export async function POST(request: Request) {
 
       const content = completion.choices[0]?.message?.content;
       if (!content) throw new Error("No content");
-      actionRaw = JSON.parse(content);
+      responseRaw = JSON.parse(content);
     } catch {
-      actionRaw = fallbackAction(parsed.data.message, mergedCatalog);
-    }
-
-    const actionParsed = assistantActionSchema.safeParse(actionRaw);
-    if (!actionParsed.success) {
       const fallback = fallbackAction(parsed.data.message, mergedCatalog);
-      return NextResponse.json({ action: fallback });
+      const normalizedFallback = normalizeAction(fallback);
+      responseRaw = {
+        message: buildAssistantMessage(normalizedFallback),
+        actions: normalizedFallback.intent === "unknown" ? [] : [normalizedFallback],
+      };
     }
 
-    const action = actionParsed.data;
-    if (action.confidence < 0.8 && action.intent !== "query_today") {
-      return NextResponse.json({
-        action: {
-          ...action,
-          needsConfirmation: true,
-          clarificationQuestion:
-            "clarificationQuestion" in action
-              ? (action.clarificationQuestion ?? "Could you clarify that request?")
-              : "Could you clarify that request?",
-        },
-      });
+    const responseParsed = assistantResponseSchema.safeParse(responseRaw);
+
+    let assistantMessage = "I need a little more detail to help with that.";
+    let actions: z.infer<typeof assistantActionSchema>[] = [];
+
+    if (responseParsed.success) {
+      assistantMessage = responseParsed.data.message;
+      actions = responseParsed.data.actions.map(normalizeAction);
+    } else {
+      const actionParsed = assistantActionSchema.safeParse(responseRaw);
+      if (!actionParsed.success) {
+        const fallback = normalizeAction(fallbackAction(parsed.data.message, mergedCatalog));
+        assistantMessage = buildAssistantMessage(fallback);
+        actions = fallback.intent === "unknown" ? [] : [fallback];
+      } else {
+        const action = normalizeAction(actionParsed.data);
+        assistantMessage = buildAssistantMessage(action);
+        actions = action.intent === "unknown" ? [] : [action];
+      }
     }
 
-    return NextResponse.json({ action });
+    return NextResponse.json({
+      message: assistantMessage,
+      actions,
+      action: actions[0] ?? fallbackAction(parsed.data.message, mergedCatalog),
+    });
   } catch {
     return NextResponse.json(
       {

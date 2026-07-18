@@ -12,6 +12,8 @@ const quantityWords: Record<string, number> = {
   half: 0.5,
 };
 
+const mealContainerPattern = /\b(bowl|plate|salad|wrap|burrito|sandwich|meal)\b/i;
+
 export function normalizeName(value: string): string {
   return value
     .toLowerCase()
@@ -96,6 +98,10 @@ export function parseIngredientTotals(
   for (const segment of segmentCandidates) {
     const match = findFoodMatch(segment, catalog);
     if (!match) {
+      if (lines.length > 0 && mealContainerPattern.test(segment)) {
+        continue;
+      }
+
       unresolved.push(segment);
       continue;
     }

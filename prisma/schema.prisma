@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Meal {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum NutritionSource {
+  BUILT_IN_CATALOG
+  CUSTOM_MENU
+  USER_ESTIMATE
+  AI_ESTIMATE
+}
+
+enum GymStatus {
+  PLANNED
+  COMPLETED
+  SKIPPED
+  MISSED
+}
+
+enum WorkoutType {
+  STRENGTH
+  CARDIO
+  MOBILITY
+  HIIT
+  SPORTS
+  RECOVERY
+  OTHER
+}
+
+enum EnergyLevel {
+  VERY_LOW
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+enum DifficultyLevel {
+  EASY
+  MODERATE
+  HARD
+  INTENSE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum StepSource {
+  MANUAL
+  PHONE
+  WATCH
+  IMPORTED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELED
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model User {
+  id              String            @id @default(cuid())
+  email           String?           @unique
+  name            String?
+  timezone        String            @default("America/Chicago")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  nutritionEntries NutritionEntry[]
+  nutritionGoals  NutritionGoal[]
+  gymEntries      GymEntry[]
+  gymSchedules    GymSchedule[]
+  waterEntries    WaterEntry[]
+  stepEntries     StepEntry[]
+  tasks           Task[]
+  chatMessages    ChatMessage[]
+  settings        UserSettings?
+}
+
+model NutritionEntry {
+  id          String           @id @default(cuid())
+  userId      String
+  food        String
+  calories    Int
+  protein     Float?
+  carbs       Float?
+  fat         Float?
+  fiber       Float?
+  quantity    Float            @default(1)
+  servingSize String?
+  restaurant  String?
+  source      NutritionSource  @default(BUILT_IN_CATALOG)
+  meal        Meal
+  loggedAt    DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+}
+
+model NutritionGoal {
+  id            String   @id @default(cuid())
+  userId        String
+  dailyCalories Int      @default(1200)
+  dailyProtein  Float?
+  dailyCarbs    Float?
+  dailyFat      Float?
+  dailyFiber    Float?
+  effectiveDate DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, effectiveDate])
+}
+
+model FoodCatalogItem {
+  id          String           @id @default(cuid())
+  slug        String           @unique
+  name        String
+  aliases     String[]
+  restaurant  String?
+  servingSize String
+  calories    Int
+  protein     Float?
+  carbs       Float?
+  fat         Float?
+  fiber       Float?
+  source      NutritionSource  @default(BUILT_IN_CATALOG)
+  isBuiltIn   Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model GymEntry {
+  id              String           @id @default(cuid())
+  userId          String
+  date            DateTime
+  status          GymStatus        @default(PLANNED)
+  workoutType     WorkoutType?
+  startTime       DateTime?
+  endTime         DateTime?
+  durationMinutes Int?
+  cardioMinutes   Int?
+  energyLevel     EnergyLevel?
+  difficultyLevel DifficultyLevel?
+  notes           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model GymSchedule {
+  id        String    @id @default(cuid())
+  userId    String
+  dayOfWeek DayOfWeek
+  scheduled Boolean   @default(false)
+  label     String?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dayOfWeek])
+}
+
+model WaterEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  ounces    Int
+  loggedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+}
+
+model StepEntry {
+  id        String     @id @default(cuid())
+  userId    String
+  steps     Int
+  date      DateTime
+  source    StepSource @default(MANUAL)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+}
+
+model Task {
+  id               String       @id @default(cuid())
+  userId           String
+  title            String
+  description      String?
+  priority         TaskPriority @default(MEDIUM)
+  status           TaskStatus   @default(TODO)
+  dueAt            DateTime?
+  scheduledAt      DateTime?
+  estimatedMinutes Int?
+  location         String?
+  businessHours    String?
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, dueAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  role      ChatRole
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model UserSettings {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  dailyCalorieGoal  Int      @default(1200)
+  timezone          String   @default("America/Chicago")
+  theme             String   @default("jarvis-dark")
+  compactMode       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

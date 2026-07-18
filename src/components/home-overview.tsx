@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -14,15 +14,13 @@ import {
 } from "lucide-react";
 import { Surface } from "@/components/ui/surface";
 import { SectionHeading } from "@/components/ui/section-heading";
+import { useDashboardData } from "@/lib/dashboard-client";
 import type { CalorieEntryRecord } from "@/types/nutrition";
+import type { GymEntryView } from "@/types/dashboard";
 
 const GOAL_STORAGE_KEY = "jarvis-daily-goal-v1";
-
-type GymEntryView = {
-  id: string;
-  date: string;
-  status: "PLANNED" | "COMPLETED" | "SKIPPED" | "MISSED";
-};
+const EMPTY_ENTRIES: CalorieEntryRecord[] = [];
+const EMPTY_GYM_ENTRIES: GymEntryView[] = [];
 
 function chicagoDateString(date = new Date()): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -87,62 +85,28 @@ function calculateConsecutiveStreak(dayKeys: string[], today: string): number {
   return streak;
 }
 
-function previousMonthKey(monthKey: string): string {
-  const [year, month] = monthKey.split("-").map(Number);
-  if (!Number.isInteger(year) || !Number.isInteger(month)) return monthKey;
-  const date = new Date(year, month - 2, 1);
-  const yyyy = String(date.getFullYear());
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  return `${yyyy}-${mm}`;
-}
-
 export function HomeOverview() {
-  const [todayEntries, setTodayEntries] = useState<CalorieEntryRecord[]>([]);
-  const [monthEntries, setMonthEntries] = useState<CalorieEntryRecord[]>([]);
-  const [streakEntries, setStreakEntries] = useState<CalorieEntryRecord[]>([]);
-  const [monthGymEntries, setMonthGymEntries] = useState<GymEntryView[]>([]);
-  const [streakGymEntries, setStreakGymEntries] = useState<GymEntryView[]>([]);
+  const { data, loading } = useDashboardData();
+
   const [dailyGoal] = useState(() => {
     if (typeof window === "undefined") return 1200;
     const storedGoal = Number(localStorage.getItem(GOAL_STORAGE_KEY) ?? "1200");
     return Number.isFinite(storedGoal) && storedGoal > 0 ? storedGoal : 1200;
   });
 
-  useEffect(() => {
-    const today = chicagoDateString();
-    const month = today.slice(0, 7);
-    const previousMonth = previousMonthKey(month);
+  const todayEntries = useMemo(() => data?.entriesToday ?? EMPTY_ENTRIES, [data]);
+  const monthEntries = useMemo(() => data?.entriesCurrentMonth ?? EMPTY_ENTRIES, [data]);
+  const streakEntries = useMemo(
+    () => (data ? [...data.entriesPreviousMonth, ...data.entriesCurrentMonth] : EMPTY_ENTRIES),
+    [data],
+  );
+  const monthGymEntries = useMemo(() => data?.gymCurrentMonth ?? EMPTY_GYM_ENTRIES, [data]);
+  const streakGymEntries = useMemo(
+    () => (data ? [...data.gymPreviousMonth, ...data.gymCurrentMonth] : EMPTY_GYM_ENTRIES),
+    [data],
+  );
 
-    Promise.all([
-      fetch(`/api/entries?date=${today}`),
-      fetch(`/api/entries?month=${month}`),
-      fetch(`/api/entries?month=${previousMonth}`),
-      fetch(`/api/gym-entries?month=${month}`),
-      fetch(`/api/gym-entries?month=${previousMonth}`),
-    ])
-      .then(async ([todayResponse, monthResponse, previousMonthResponse, gymMonthResponse, gymPreviousMonthResponse]) => {
-        const todayPayload = (await todayResponse.json()) as { entries?: CalorieEntryRecord[] };
-        const monthPayload = (await monthResponse.json()) as { entries?: CalorieEntryRecord[] };
-        const previousMonthPayload = (await previousMonthResponse.json()) as { entries?: CalorieEntryRecord[] };
-        const gymMonthPayload = (await gymMonthResponse.json()) as { entries?: GymEntryView[] };
-        const gymPreviousMonthPayload = (await gymPreviousMonthResponse.json()) as { entries?: GymEntryView[] };
-
-        setTodayEntries(todayPayload.entries ?? []);
-        setMonthEntries(monthPayload.entries ?? []);
-        setStreakEntries([...(previousMonthPayload.entries ?? []), ...(monthPayload.entries ?? [])]);
-        setMonthGymEntries(gymMonthPayload.entries ?? []);
-        setStreakGymEntries([...(gymPreviousMonthPayload.entries ?? []), ...(gymMonthPayload.entries ?? [])]);
-      })
-      .catch(() => {
-        setTodayEntries([]);
-        setMonthEntries([]);
-        setStreakEntries([]);
-        setMonthGymEntries([]);
-        setStreakGymEntries([]);
-      });
-  }, []);
-
-  const todayKey = useMemo(() => chicagoDateString(), []);
+  const todayKey = data?.todayKey ?? chicagoDateString();
   const calories = useMemo(() => todayEntries.reduce((sum, entry) => sum + entry.calories, 0), [todayEntries]);
   const protein = useMemo(() => todayEntries.reduce((sum, entry) => sum + (entry.protein ?? 0), 0), [todayEntries]);
   const remaining = Math.max(0, dailyGoal - calories);
@@ -220,10 +184,11 @@ export function HomeOverview() {
       <SectionHeading
         eyebrow="Control center"
         title={`${formatGreeting()}, Alan.`}
-        description={todayEntries.length === 0 ? "No nutrition data yet today." : `You are ${remaining} calories below your current goal.`}
+        description={loading ? "Loading dashboard..." : todayEntries.length === 0 ? "No nutrition data yet today." : `You are ${remaining} calories below your current goal.`}
         action={
           <Link
             href="/nutrition"
+            prefetch={false}
             className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
           >
             Open Nutrition
@@ -242,7 +207,7 @@ export function HomeOverview() {
             <div>
               <p className="text-sm text-slate-300">Today&apos;s briefing</p>
               <h2 className="mt-2 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                {todayEntries.length === 0 ? "No data yet." : `${remaining} calories remaining.`}
+                {loading ? "Loading..." : todayEntries.length === 0 ? "No data yet." : `${remaining} calories remaining.`}
               </h2>
               <p className="mt-3 max-w-2xl text-sm text-slate-300 sm:text-base">{briefing}</p>
             </div>
@@ -362,7 +327,7 @@ export function HomeOverview() {
         ].map((item) => {
           const Icon = item.icon;
           return (
-            <Link key={item.label} href={item.href}>
+            <Link key={item.label} href={item.href} prefetch={false}>
               <Surface className="group p-5 transition hover:border-cyan-400/30 hover:bg-white/[0.06]">
                 <div className="flex items-center justify-between">
                   <div>

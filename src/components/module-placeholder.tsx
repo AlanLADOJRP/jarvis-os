@@ -22,6 +22,7 @@ export function ModulePlaceholder({
         {primaryHref && primaryLabel ? (
           <Link
             href={primaryHref}
+            prefetch={false}
             className="mt-5 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
           >
             {primaryLabel}

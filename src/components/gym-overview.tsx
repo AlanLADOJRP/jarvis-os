@@ -1,24 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CalendarDays, Dumbbell, Flame, Save, Sparkles, TrendingUp } from "lucide-react";
 import type { GymStatus, WorkoutType } from "@prisma/client";
 import { Surface } from "@/components/ui/surface";
 import { SectionHeading } from "@/components/ui/section-heading";
-
-type GymEntryView = {
-  id: string;
-  date: string;
-  status: "PLANNED" | "COMPLETED" | "SKIPPED" | "MISSED";
-  workoutType?: WorkoutType | null;
-  startTime?: string | null;
-  endTime?: string | null;
-  durationMinutes?: number | null;
-  cardioMinutes?: number | null;
-  notes?: string | null;
-  createdAt?: string;
-};
+import { useDashboardData } from "@/lib/dashboard-client";
+import type { GymEntryView } from "@/types/dashboard";
 
 type WorkoutDraft = {
   workoutType: WorkoutType;
@@ -26,6 +15,8 @@ type WorkoutDraft = {
   cardioMinutes: number;
   notes: string;
 };
+
+const EMPTY_GYM_ENTRIES: GymEntryView[] = [];
 
 function chicagoDateString(date = new Date()): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -51,8 +42,8 @@ function dayKeyFromIso(value: string): string {
 }
 
 export function GymOverview() {
-  const [entries, setEntries] = useState<GymEntryView[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data, loading, refresh } = useDashboardData();
+
   const [saving, setSaving] = useState(false);
   const [showLogForm, setShowLogForm] = useState(false);
   const [draft, setDraft] = useState<WorkoutDraft>({
@@ -62,26 +53,8 @@ export function GymOverview() {
     notes: "",
   });
 
-  const monthKey = useMemo(() => chicagoDateString().slice(0, 7), []);
-  const todayKey = useMemo(() => chicagoDateString(), []);
-
-  const loadEntries = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/gym-entries?month=${monthKey}`);
-      const payload = (await response.json()) as { entries?: GymEntryView[] };
-      setEntries(payload.entries ?? []);
-    } catch {
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [monthKey]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadEntries();
-  }, [loadEntries]);
+  const entries = useMemo(() => data?.gymCurrentMonth ?? EMPTY_GYM_ENTRIES, [data]);
+  const todayKey = data?.todayKey ?? chicagoDateString();
 
   const todayEntry = useMemo(
     () => entries.find((entry) => dayKeyFromIso(entry.date) === todayKey),
@@ -145,13 +118,17 @@ export function GymOverview() {
         });
       }
 
-      await loadEntries();
+      await refresh(true);
     } finally {
       setSaving(false);
     }
   }
 
-  const latestEntry = entries[0] ?? null;
+  const latestEntry = useMemo(
+    () =>
+      [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0] ?? null,
+    [entries],
+  );
 
   return (
     <div className="space-y-6">

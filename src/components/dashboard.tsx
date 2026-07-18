@@ -16,6 +16,7 @@ import {
 import type { AssistantAction, ChatMessage } from "@/types/chat";
 import type { CalorieEntryCreateInput, CalorieEntryRecord, MealType, NutritionItem } from "@/types/nutrition";
 import { mergeCatalogs, parseIngredientTotals } from "@/lib/nutrition";
+import { useDashboardData } from "@/lib/dashboard-client";
 
 const DEFAULT_GOAL = 1200;
 const CHAT_STORAGE_KEY = "jarvis-chat-history-v1";
@@ -100,6 +101,7 @@ function round(value: number): number {
 }
 
 export function Dashboard() {
+  const { data: dashboardData, loading: loadingDashboard, refresh: refreshDashboard } = useDashboardData();
   const [entries, setEntries] = useState<CalorieEntryRecord[]>([]);
   const [monthEntries, setMonthEntries] = useState<CalorieEntryRecord[]>([]);
   const [selectedDayKey, setSelectedDayKey] = useState<string>(() => chicagoDateString());
@@ -136,7 +138,6 @@ export function Dashboard() {
   });
   const [input, setInput] = useState("");
   const [loadingChat, setLoadingChat] = useState(false);
-  const [loadingEntries, setLoadingEntries] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pending, setPending] = useState<ConfirmationAction | null>(null);
@@ -147,8 +148,7 @@ export function Dashboard() {
   const messagesBottomRef = useRef<HTMLDivElement | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const todayString = useMemo(() => chicagoDateString(), []);
-  const currentMonthKey = useMemo(() => chicagoMonthKey(), []);
+  const currentMonthKey = dashboardData?.currentMonthKey ?? chicagoMonthKey();
   const todayCalories = useMemo(
     () => entries.reduce((sum, entry) => sum + entry.calories, 0),
     [entries],
@@ -213,45 +213,20 @@ export function Dashboard() {
     localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(nextMessages));
   };
 
-  const loadTodayEntries = useCallback(async () => {
-    setLoadingEntries(true);
-    try {
-      const response = await fetch(`/api/entries?date=${todayString}`);
-      const payload = (await response.json()) as { entries?: CalorieEntryRecord[]; error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Unable to load entries");
-      }
-      setEntries(payload.entries ?? []);
-    } catch (error) {
-      pushToast(error instanceof Error ? error.message : "Failed loading entries");
-    } finally {
-      setLoadingEntries(false);
-    }
-  }, [todayString]);
-
-  const loadCalendarData = useCallback(async () => {
-    try {
-      const nutritionResponse = await fetch(`/api/entries?month=${currentMonthKey}`);
-
-      const nutritionPayload = (await nutritionResponse.json()) as { entries?: CalorieEntryRecord[] };
-
-      if (nutritionResponse.ok) {
-        setMonthEntries(nutritionPayload.entries ?? []);
-      }
-    } catch {
-      pushToast("Unable to load calendar data.");
-    }
-  }, [currentMonthKey]);
+  const refreshNutritionViews = useCallback(async (force = false) => {
+    const next = await refreshDashboard(force);
+    if (!next) return;
+    setEntries(next.entriesToday);
+    setMonthEntries(next.entriesCurrentMonth);
+  }, [refreshDashboard]);
 
   useEffect(() => {
+    if (!dashboardData) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadTodayEntries();
-  }, [loadTodayEntries]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void loadCalendarData();
-  }, [loadCalendarData]);
+    setEntries(dashboardData.entriesToday);
+    setMonthEntries(dashboardData.entriesCurrentMonth);
+    setSelectedDayKey((current) => current || dashboardData.todayKey);
+  }, [dashboardData]);
 
   useEffect(() => {
     messagesBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -273,7 +248,7 @@ export function Dashboard() {
       throw new Error(payload.error ?? "Failed to log food");
     }
 
-    await loadTodayEntries();
+    await refreshNutritionViews(true);
     pushToast(`Logged ${action.entries.length} food entr${action.entries.length > 1 ? "ies" : "y"}.`);
   }
 
@@ -315,7 +290,7 @@ export function Dashboard() {
         pushToast("Entry updated.");
       }
 
-      await loadTodayEntries();
+      await refreshNutritionViews(true);
       persistMessages([
         ...messages,
         {
@@ -561,7 +536,7 @@ export function Dashboard() {
       return;
     }
     pushToast("Entry deleted.");
-    await loadTodayEntries();
+    await refreshNutritionViews(true);
   }
 
   function startEdit(entry: CalorieEntryRecord) {
@@ -589,7 +564,7 @@ export function Dashboard() {
     setEditingId(null);
     setEditState({});
     pushToast("Entry updated.");
-    await loadTodayEntries();
+    await refreshNutritionViews(true);
   }
 
   async function clearDay() {
@@ -599,7 +574,7 @@ export function Dashboard() {
     for (const entry of entries) {
       await fetch(`/api/entries/${entry.id}`, { method: "DELETE" });
     }
-    await loadTodayEntries();
+    await refreshNutritionViews(true);
     pushToast("Today cleared.");
   }
 
@@ -965,8 +940,8 @@ export function Dashboard() {
           <section className="rounded-2xl border border-sky-500/25 bg-slate-900/55 backdrop-blur-xl">
             <div className="border-b border-slate-700/60 px-4 py-3 text-sm font-medium text-sky-200">Today&apos;s Entries</div>
             <div className="max-h-[62vh] overflow-y-auto px-4 py-4 space-y-3">
-              {loadingEntries && <p className="text-sm text-slate-300">Loading entries...</p>}
-              {!loadingEntries && entries.length === 0 && (
+              {loadingDashboard && <p className="text-sm text-slate-300">Loading entries...</p>}
+              {!loadingDashboard && entries.length === 0 && (
                 <div className="rounded-xl border border-dashed border-slate-700 p-3 text-sm text-slate-300">
                   Nothing logged yet. Ask JARVIS to log your first meal.
                 </div>

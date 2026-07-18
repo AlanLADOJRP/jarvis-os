@@ -58,6 +58,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={false}
                   className={clsx(
                     "group flex min-w-max items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition-all duration-300 lg:min-w-0",
                     active

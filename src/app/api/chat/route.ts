@@ -32,6 +32,33 @@ const requestSchema = z.object({
   ),
 });
 
+function isAcknowledgement(message: string): boolean {
+  return /^(ok|okay|kk|got it|sounds good|perfect|nice|cool|thanks|thank you|thx)[.!]?$/i.test(message.trim());
+}
+
+function acknowledgementMessage(recentMessages: Array<{ role: "user" | "assistant"; content: string }>): string {
+  const lastAssistant = [...recentMessages].reverse().find((message) => message.role === "assistant")?.content ?? "";
+  const lower = lastAssistant.toLowerCase();
+
+  if (lower.includes("to-do") || lower.includes("task")) {
+    return "Done. It's already on your to-do list.";
+  }
+
+  if (lower.includes("water")) {
+    return "Done. I already logged that water entry.";
+  }
+
+  if (lower.includes("gym")) {
+    return "Done. I already updated your gym entry.";
+  }
+
+  if (lower.includes("meal") || lower.includes("calorie") || lower.includes("food")) {
+    return "Done. I already logged that nutrition entry.";
+  }
+
+  return "Done.";
+}
+
 function fallbackAction(message: string, catalog: NutritionItem[]): AssistantAction {
   const lower = message.toLowerCase();
 
@@ -264,6 +291,13 @@ export async function POST(request: Request) {
         { error: "Invalid chat request.", details: parsed.error.flatten() },
         { status: 400 },
       );
+    }
+
+    if (isAcknowledgement(parsed.data.message)) {
+      return NextResponse.json({
+        message: acknowledgementMessage(parsed.data.recentMessages),
+        actions: [],
+      });
     }
 
     const mergedCatalog = mergeCatalogs(parsed.data.customFoods);

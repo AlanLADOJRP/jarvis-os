@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { bulkCreateEntries, getEntriesForDate } from "@/server/entries";
+import { bulkCreateEntries, getEntriesForDate, getEntriesForMonth } from "@/server/entries";
 import { chicagoDateString } from "@/lib/time";
 import { mealSchema } from "@/types/chat";
 
@@ -36,6 +36,13 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const dateParam = url.searchParams.get("date");
+    const monthParam = url.searchParams.get("month");
+
+    if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
+      const entries = await getEntriesForMonth(monthParam);
+      return NextResponse.json({ entries });
+    }
+
     const date = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : chicagoDateString();
 
     const entries = await getEntriesForDate(date);

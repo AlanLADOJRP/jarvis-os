@@ -29,6 +29,14 @@ const SUGGESTIONS = [
 ];
 
 type Toast = { id: string; text: string };
+type GymEntryView = {
+  id: string;
+  date: string;
+  status: "PLANNED" | "COMPLETED" | "SKIPPED" | "MISSED";
+  workoutType?: string | null;
+  durationMinutes?: number | null;
+  notes?: string | null;
+};
 type ConfirmationAction =
   | { type: "delete"; entryId: string; summary: string }
   | { type: "undo"; entryId: string; summary: string }
@@ -58,12 +66,52 @@ function formatDisplayDate(date = new Date()): string {
   }).format(date);
 }
 
+function chicagoDayKey(date: Date): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  return `${year}-${month}-${day}`;
+}
+
+function chicagoMonthKey(date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  return `${year}-${month}`;
+}
+
+function monthDays(monthKey: string): string[] {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return [];
+
+  const totalDays = new Date(year, month, 0).getDate();
+  return Array.from({ length: totalDays }, (_, index) => {
+    const day = String(index + 1).padStart(2, "0");
+    return `${monthKey}-${day}`;
+  });
+}
+
 function round(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
 export function Dashboard() {
   const [entries, setEntries] = useState<CalorieEntryRecord[]>([]);
+  const [monthEntries, setMonthEntries] = useState<CalorieEntryRecord[]>([]);
+  const [gymEntries, setGymEntries] = useState<GymEntryView[]>([]);
+  const [selectedDayKey, setSelectedDayKey] = useState<string>(() => chicagoDateString());
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window === "undefined") return [];
     const storedMessages = localStorage.getItem(CHAT_STORAGE_KEY);
@@ -109,12 +157,59 @@ export function Dashboard() {
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const todayString = useMemo(() => chicagoDateString(), []);
+  const currentMonthKey = useMemo(() => chicagoMonthKey(), []);
   const todayCalories = useMemo(
     () => entries.reduce((sum, entry) => sum + entry.calories, 0),
     [entries],
   );
   const remaining = Math.max(0, dailyGoal - todayCalories);
   const progressPercent = Math.min(100, Math.round((todayCalories / dailyGoal) * 100));
+
+  const nutritionByDay = useMemo(() => {
+    const dayMap = new Map<string, { calories: number; entries: CalorieEntryRecord[] }>();
+    for (const entry of monthEntries) {
+      const key = chicagoDayKey(new Date(entry.loggedAt));
+      const current = dayMap.get(key) ?? { calories: 0, entries: [] };
+      current.calories += entry.calories;
+      current.entries.push(entry);
+      dayMap.set(key, current);
+    }
+    return dayMap;
+  }, [monthEntries]);
+
+  const gymByDay = useMemo(() => {
+    const dayMap = new Map<string, GymEntryView>();
+    for (const entry of gymEntries) {
+      dayMap.set(chicagoDayKey(new Date(entry.date)), entry);
+    }
+    return dayMap;
+  }, [gymEntries]);
+
+  const monthDates = useMemo(() => monthDays(currentMonthKey), [currentMonthKey]);
+  const selectedNutritionDay = nutritionByDay.get(selectedDayKey);
+  const selectedGymDay = gymByDay.get(selectedDayKey);
+
+  function nutritionTone(calories: number) {
+    if (calories <= 0) return "bg-slate-800/60 text-slate-400";
+    if (calories <= dailyGoal) {
+      if (calories >= dailyGoal * 0.85) return "bg-amber-500/20 text-amber-200";
+      return "bg-emerald-500/15 text-emerald-200";
+    }
+    return "bg-rose-500/20 text-rose-200";
+  }
+
+  function gymTone(status?: GymEntryView["status"]) {
+    switch (status) {
+      case "COMPLETED":
+        return "bg-emerald-500/20 text-emerald-200";
+      case "MISSED":
+      case "SKIPPED":
+        return "bg-rose-500/20 text-rose-200";
+      case "PLANNED":
+      default:
+        return "bg-sky-500/15 text-sky-100";
+    }
+  }
 
   const pushToast = (text: string) => {
     const id = crypto.randomUUID();
@@ -145,11 +240,37 @@ export function Dashboard() {
     }
   }, [todayString]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
+  const loadCalendarData = useCallback(async () => {
+    try {
+      const [nutritionResponse, gymResponse] = await Promise.all([
+        fetch(`/api/entries?month=${currentMonthKey}`),
+        fetch(`/api/gym-entries?month=${currentMonthKey}`),
+      ]);
+
+      const nutritionPayload = (await nutritionResponse.json()) as { entries?: CalorieEntryRecord[] };
+      const gymPayload = (await gymResponse.json()) as { entries?: GymEntryView[] };
+
+      if (nutritionResponse.ok) {
+        setMonthEntries(nutritionPayload.entries ?? []);
+      }
+
+      if (gymResponse.ok) {
+        setGymEntries(gymPayload.entries ?? []);
+      }
+    } catch {
+      pushToast("Unable to load calendar data.");
+    }
+  }, [currentMonthKey]);
+
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTodayEntries();
   }, [loadTodayEntries]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCalendarData();
+  }, [loadCalendarData]);
 
   useEffect(() => {
     messagesBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -596,8 +717,8 @@ export function Dashboard() {
         <header className="rounded-2xl border border-sky-500/30 bg-slate-900/55 p-4 backdrop-blur-xl shadow-[0_0_40px_rgba(56,189,248,0.12)]">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-semibold tracking-wide text-sky-200">JARVIS Calories</h1>
-              <p className="text-sm text-slate-300">{formatDisplayDate()}</p>
+              <h1 className="text-2xl font-semibold tracking-wide text-sky-200">JARVIS OS</h1>
+              <p className="text-sm text-slate-300">Nutrition + Gym control center • {formatDisplayDate()}</p>
             </div>
             <div className="flex gap-2">
               <button
@@ -652,6 +773,130 @@ export function Dashboard() {
                 aria-label="Daily calories progress"
               />
             </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-sky-200">Nutrition Calendar</h2>
+                <p className="text-xs text-slate-400">Color coded by goal progress for {currentMonthKey}</p>
+              </div>
+              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">
+                {monthEntries.length} logged
+              </span>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-[0.2em] text-slate-500">
+              {['S','M','T','W','T','F','S'].map((day) => <div key={day}>{day}</div>)}
+            </div>
+            <div className="mt-2 grid grid-cols-7 gap-1">
+              {monthDates.map((dayKey) => {
+                const dayNumber = Number(dayKey.slice(-2));
+                const day = nutritionByDay.get(dayKey);
+                const tone = nutritionTone(day?.calories ?? 0);
+                return (
+                  <button
+                    key={dayKey}
+                    type="button"
+                    onClick={() => setSelectedDayKey(dayKey)}
+                    className={`min-h-16 rounded-xl border border-slate-700 p-2 text-left text-xs transition hover:border-cyan-400 ${tone}`}
+                    title={day ? `${day.calories} calories, ${day.entries.length} entries` : "No entries"}
+                  >
+                    <div className="mb-1 text-sm font-semibold">{dayNumber}</div>
+                    <div className="line-clamp-2">
+                      {day ? `${day.calories} cal` : "-"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-sky-200">Gym Calendar</h2>
+                <p className="text-xs text-slate-400">Workout status overview for {currentMonthKey}</p>
+              </div>
+              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">
+                {gymEntries.length} entries
+              </span>
+            </div>
+            <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-[0.2em] text-slate-500">
+              {['S','M','T','W','T','F','S'].map((day) => <div key={day}>{day}</div>)}
+            </div>
+            <div className="mt-2 grid grid-cols-7 gap-1">
+              {monthDates.map((dayKey) => {
+                const dayNumber = Number(dayKey.slice(-2));
+                const day = gymByDay.get(dayKey);
+                const tone = gymTone(day?.status);
+                return (
+                  <button
+                    key={dayKey}
+                    type="button"
+                    onClick={() => setSelectedDayKey(dayKey)}
+                    className={`min-h-16 rounded-xl border border-slate-700 p-2 text-left text-xs transition hover:border-cyan-400 ${tone}`}
+                    title={day ? `${day.status}${day.workoutType ? ` • ${day.workoutType}` : ""}` : "No workout"}
+                  >
+                    <div className="mb-1 text-sm font-semibold">{dayNumber}</div>
+                    <div className="line-clamp-2">
+                      {day ? day.status.toLowerCase() : "-"}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-sky-200">Nutrition Day Detail</h2>
+                <p className="text-xs text-slate-400">{selectedDayKey}</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs ${nutritionTone(selectedNutritionDay?.calories ?? 0)}`}>
+                {(selectedNutritionDay?.calories ?? 0) > dailyGoal ? "Exceeded" : (selectedNutritionDay?.calories ?? 0) >= dailyGoal * 0.85 ? "Close" : "Within"}
+              </span>
+            </div>
+            {selectedNutritionDay ? (
+              <div className="space-y-2 text-sm text-slate-300">
+                <p className="text-base text-slate-100">{selectedNutritionDay.calories} calories across {selectedNutritionDay.entries.length} items.</p>
+                {selectedNutritionDay.entries.map((entry) => (
+                  <div key={entry.id} className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span>{entry.food}</span>
+                      <span className="text-slate-400">{entry.calories} cal</span>
+                    </div>
+                    <p className="text-xs text-slate-500">{entry.meal}{entry.restaurant ? ` • ${entry.restaurant}` : ""}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">No nutrition data on this date.</p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-sky-200">Gym Day Detail</h2>
+                <p className="text-xs text-slate-400">{selectedDayKey}</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs ${gymTone(selectedGymDay?.status)}`}>
+                {selectedGymDay?.status ?? "No workout"}
+              </span>
+            </div>
+            {selectedGymDay ? (
+              <div className="space-y-2 text-sm text-slate-300">
+                <p className="text-base text-slate-100">{selectedGymDay.workoutType ?? "Workout"}{selectedGymDay.durationMinutes ? ` • ${selectedGymDay.durationMinutes} min` : ""}</p>
+                {selectedGymDay.notes && <p className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2">{selectedGymDay.notes}</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">No gym data on this date.</p>
+            )}
           </div>
         </section>
 

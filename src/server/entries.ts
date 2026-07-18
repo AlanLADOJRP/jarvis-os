@@ -210,6 +210,29 @@ export async function getEntriesForDate(date: string): Promise<CalorieEntryRecor
   return rows.map(mapEntry);
 }
 
+export async function getEntriesForMonth(month: string): Promise<CalorieEntryRecord[]> {
+  const prisma = getPrisma();
+  const user = await ensureDefaultUser();
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber)) return [];
+
+  const start = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const end = new Date(Date.UTC(year, monthNumber, 0, 23, 59, 59, 999));
+
+  const rows = await prisma.nutritionEntry.findMany({
+    where: {
+      userId: user.id,
+      loggedAt: {
+        gte: start,
+        lte: end,
+      },
+    },
+    orderBy: { loggedAt: "asc" },
+  });
+
+  return rows.map(mapEntry);
+}
+
 export async function getMostRecentEntry(): Promise<CalorieEntryRecord | null> {
   const rows = await listEntries(1);
   return rows[0] ?? null;

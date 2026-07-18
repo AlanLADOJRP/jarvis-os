@@ -13,8 +13,8 @@ const bodyFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "JARVIS Calories",
-  description: "Mobile-first AI calorie tracking dashboard",
+  title: "JARVIS OS",
+  description: "Premium personal AI operating system for nutrition, gym, tasks, and more",
 };
 
 export default function RootLayout({

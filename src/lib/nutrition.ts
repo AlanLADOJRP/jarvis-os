@@ -20,6 +20,13 @@ export function normalizeName(value: string): string {
     .trim();
 }
 
+function stripNarrationPrefix(value: string): string {
+  return value
+    .replace(/^\s*(i\s+)?(just\s+)?(ate|had|logged|ate\s+up|made|make\s+that|remove|delete|change)\b\s*/i, "")
+    .replace(/^\s*(a|an|the)\s+/i, "")
+    .trim();
+}
+
 export function quantityFromText(text: string): number {
   const normalized = normalizeName(text);
 
@@ -53,7 +60,7 @@ export function findFoodMatch(
   text: string,
   catalog: NutritionItem[],
 ): { item: NutritionItem; source: "built_in" | "custom" } | null {
-  const normalizedText = normalizeName(text);
+  const normalizedText = normalizeName(stripNarrationPrefix(text));
 
   for (const item of catalog) {
     const aliases = [item.name, ...item.aliases].map(normalizeName);
@@ -80,7 +87,7 @@ export function parseIngredientTotals(
   const normalized = normalizeName(text);
   const segmentCandidates = normalized
     .split(/\bwith\b|\band\b|,/g)
-    .map((segment) => segment.trim())
+    .map((segment) => stripNarrationPrefix(segment.trim()))
     .filter(Boolean);
 
   const lines: Array<{ name: string; calories: number; quantity: number }> = [];

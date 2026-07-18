@@ -13,7 +13,7 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
-import type { AssistantAction, ChatMessage } from "@/types/chat";
+import type { AssistantAction, AssistantResponse, ChatMessage } from "@/types/chat";
 import type { CalorieEntryCreateInput, CalorieEntryRecord, MealType, NutritionItem } from "@/types/nutrition";
 import { mergeCatalogs, parseIngredientTotals } from "@/lib/nutrition";
 import { useDashboardData } from "@/lib/dashboard-client";
@@ -304,11 +304,11 @@ export function Dashboard() {
     }
   }
 
-  async function handleAssistantAction(action: AssistantAction, userMessage: string) {
+  async function handleAssistantAction(action: AssistantAction, userMessage: string, assistantMessage?: string) {
     if (action.needsConfirmation && action.clarificationQuestion) {
       persistMessages([
         ...messages,
-        { role: "assistant", content: `${action.reply}\n\n${action.clarificationQuestion}` },
+        { role: "assistant", content: `${assistantMessage ?? action.reply}\n\n${action.clarificationQuestion}` },
       ]);
       return;
     }
@@ -327,7 +327,7 @@ export function Dashboard() {
 
       persistMessages([
         ...messages,
-        { role: "assistant", content: `${action.reply}${breakdown}` },
+        { role: "assistant", content: `${assistantMessage ?? action.reply}${breakdown}` },
       ]);
       return;
     }
@@ -477,7 +477,7 @@ export function Dashboard() {
 
     persistMessages([
       ...messages,
-      { role: "assistant", content: action.reply },
+      { role: "assistant", content: assistantMessage ?? action.reply },
     ]);
   }
 
@@ -501,16 +501,28 @@ export function Dashboard() {
         }),
       });
 
-      const payload = (await response.json()) as {
+      const payload = (await response.json()) as Partial<AssistantResponse> & {
+        actions?: AssistantAction[];
         action?: AssistantAction;
         error?: string;
       };
 
-      if (!response.ok || !payload.action) {
+      if (!response.ok) {
         throw new Error(payload.error ?? "Could not process message.");
       }
 
-      await handleAssistantAction(payload.action, outgoing);
+      const actions = payload.actions ?? (payload.action ? [payload.action] : []);
+      const assistantMessage = payload.message ?? payload.action?.reply ?? "I need a little more detail to help with that.";
+
+      if (actions.length === 0) {
+        persistMessages([
+          ...nextMessages,
+          { role: "assistant", content: assistantMessage },
+        ]);
+        return;
+      }
+
+      await handleAssistantAction(actions[0], outgoing, assistantMessage);
     } catch (error) {
       pushToast(error instanceof Error ? error.message : "Failed to send message");
       persistMessages([

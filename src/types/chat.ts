@@ -3,6 +3,25 @@ import { GymStatus, TaskPriority, WorkoutType } from "@prisma/client";
 import type { MealType } from "@/types/nutrition";
 
 export const mealSchema = z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]);
+export const assistantIntentSchema = z.enum([
+  "conversation",
+  "nutrition_log",
+  "nutrition_question",
+  "gym_log",
+  "gym_question",
+  "water_log",
+  "water_question",
+  "activity_log",
+  "task_create",
+  "task_complete",
+  "reminder",
+  "calendar",
+  "progress",
+  "settings",
+  "memory",
+  "general_question",
+  "unknown",
+]);
 
 export const chatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -109,6 +128,15 @@ const queryTasksSchema = z.object({
   clarificationQuestion: z.string().optional(),
 });
 
+const completeTaskSchema = z.object({
+  intent: z.literal("complete_task"),
+  reply: z.string(),
+  searchText: z.string().min(1),
+  confidence: z.number().min(0).max(1),
+  needsConfirmation: z.boolean(),
+  clarificationQuestion: z.string().optional(),
+});
+
 const undoLastSchema = z.object({
   intent: z.literal("undo_last"),
   reply: z.string(),
@@ -135,15 +163,23 @@ export const assistantActionSchema = z.discriminatedUnion("intent", [
   logGymSchema,
   createTaskSchema,
   queryTasksSchema,
+  completeTaskSchema,
   undoLastSchema,
   unknownSchema,
 ]);
 
 export const assistantResponseSchema = z.object({
+  intent: assistantIntentSchema,
   message: z.string().min(1),
   actions: z.array(assistantActionSchema).default([]),
 });
 
+export const assistantIntentClassificationSchema = z.object({
+  intent: assistantIntentSchema,
+  confidence: z.number().min(0).max(1),
+});
+
+export type AssistantIntent = z.infer<typeof assistantIntentSchema>;
 export type AssistantAction = z.infer<typeof assistantActionSchema>;
 export type AssistantResponse = z.infer<typeof assistantResponseSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;

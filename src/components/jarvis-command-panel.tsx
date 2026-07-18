@@ -131,6 +131,27 @@ export function JarvisCommandPanel({ collapsible = false, className = "" }: Jarv
       return assistantMessage;
     }
 
+    if (action.intent === "complete_task") {
+      const openTasks = (data?.tasks ?? []).filter((task) => task.status !== "DONE" && task.status !== "CANCELED");
+      const match = openTasks.find((task) =>
+        task.title.toLowerCase().includes(action.searchText.toLowerCase()),
+      ) ?? openTasks[0];
+
+      if (!match) {
+        return "I couldn't find an open task to mark complete.";
+      }
+
+      const response = await fetch(`/api/tasks/${match.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "DONE" }),
+      });
+      const payload = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Unable to complete task.");
+      await refresh(true);
+      return `Done. I marked \"${match.title}\" as complete.`;
+    }
+
     if (action.intent === "query_tasks") {
       const tasks = (data?.tasks ?? []).filter((task) => task.status !== "DONE" && task.status !== "CANCELED");
       return tasks.length === 0

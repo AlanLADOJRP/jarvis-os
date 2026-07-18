@@ -9,16 +9,20 @@ import {
   CalendarDays,
   Dumbbell,
   Flame,
-  Target,
-  Droplets,
-  ListTodo,
   Sparkles,
+  Target,
 } from "lucide-react";
 import { Surface } from "@/components/ui/surface";
 import { SectionHeading } from "@/components/ui/section-heading";
 import type { CalorieEntryRecord } from "@/types/nutrition";
 
 const GOAL_STORAGE_KEY = "jarvis-daily-goal-v1";
+
+type GymEntryView = {
+  id: string;
+  date: string;
+  status: "PLANNED" | "COMPLETED" | "SKIPPED" | "MISSED";
+};
 
 function chicagoDateString(date = new Date()): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -32,6 +36,15 @@ function chicagoDateString(date = new Date()): string {
   const month = parts.find((part) => part.type === "month")?.value ?? "";
   const day = parts.find((part) => part.type === "day")?.value ?? "";
   return `${year}-${month}-${day}`;
+}
+
+function chicagoDayKeyFromIso(value: string): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatGreeting(): string {
@@ -57,9 +70,38 @@ function statTone(value: number, goal: number) {
   return "text-cyan-200";
 }
 
+function calculateConsecutiveStreak(dayKeys: string[], today: string): number {
+  if (dayKeys.length === 0) return 0;
+
+  const uniqueDays = new Set(dayKeys);
+  let streak = 0;
+  const cursor = new Date(`${today}T12:00:00`);
+
+  while (true) {
+    const key = chicagoDateString(cursor);
+    if (!uniqueDays.has(key)) break;
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return streak;
+}
+
+function previousMonthKey(monthKey: string): string {
+  const [year, month] = monthKey.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(month)) return monthKey;
+  const date = new Date(year, month - 2, 1);
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  return `${yyyy}-${mm}`;
+}
+
 export function HomeOverview() {
   const [todayEntries, setTodayEntries] = useState<CalorieEntryRecord[]>([]);
   const [monthEntries, setMonthEntries] = useState<CalorieEntryRecord[]>([]);
+  const [streakEntries, setStreakEntries] = useState<CalorieEntryRecord[]>([]);
+  const [monthGymEntries, setMonthGymEntries] = useState<GymEntryView[]>([]);
+  const [streakGymEntries, setStreakGymEntries] = useState<GymEntryView[]>([]);
   const [dailyGoal] = useState(() => {
     if (typeof window === "undefined") return 1200;
     const storedGoal = Number(localStorage.getItem(GOAL_STORAGE_KEY) ?? "1200");
@@ -69,26 +111,58 @@ export function HomeOverview() {
   useEffect(() => {
     const today = chicagoDateString();
     const month = today.slice(0, 7);
+    const previousMonth = previousMonthKey(month);
 
     Promise.all([
       fetch(`/api/entries?date=${today}`),
       fetch(`/api/entries?month=${month}`),
+      fetch(`/api/entries?month=${previousMonth}`),
+      fetch(`/api/gym-entries?month=${month}`),
+      fetch(`/api/gym-entries?month=${previousMonth}`),
     ])
-      .then(async ([todayResponse, monthResponse]) => {
+      .then(async ([todayResponse, monthResponse, previousMonthResponse, gymMonthResponse, gymPreviousMonthResponse]) => {
         const todayPayload = (await todayResponse.json()) as { entries?: CalorieEntryRecord[] };
         const monthPayload = (await monthResponse.json()) as { entries?: CalorieEntryRecord[] };
+        const previousMonthPayload = (await previousMonthResponse.json()) as { entries?: CalorieEntryRecord[] };
+        const gymMonthPayload = (await gymMonthResponse.json()) as { entries?: GymEntryView[] };
+        const gymPreviousMonthPayload = (await gymPreviousMonthResponse.json()) as { entries?: GymEntryView[] };
+
         setTodayEntries(todayPayload.entries ?? []);
         setMonthEntries(monthPayload.entries ?? []);
+        setStreakEntries([...(previousMonthPayload.entries ?? []), ...(monthPayload.entries ?? [])]);
+        setMonthGymEntries(gymMonthPayload.entries ?? []);
+        setStreakGymEntries([...(gymPreviousMonthPayload.entries ?? []), ...(gymMonthPayload.entries ?? [])]);
       })
       .catch(() => {
         setTodayEntries([]);
         setMonthEntries([]);
+        setStreakEntries([]);
+        setMonthGymEntries([]);
+        setStreakGymEntries([]);
       });
   }, []);
 
+  const todayKey = useMemo(() => chicagoDateString(), []);
   const calories = useMemo(() => todayEntries.reduce((sum, entry) => sum + entry.calories, 0), [todayEntries]);
   const protein = useMemo(() => todayEntries.reduce((sum, entry) => sum + (entry.protein ?? 0), 0), [todayEntries]);
-  const underGoal = Math.max(0, dailyGoal - calories);
+  const remaining = Math.max(0, dailyGoal - calories);
+
+  const gymToday = useMemo(
+    () => monthGymEntries.find((entry) => chicagoDayKeyFromIso(entry.date) === todayKey),
+    [monthGymEntries, todayKey],
+  );
+
+  const nutritionStreak = useMemo(() => {
+    const daysWithFood = streakEntries.map((entry) => chicagoDayKeyFromIso(entry.loggedAt));
+    return calculateConsecutiveStreak(daysWithFood, todayKey);
+  }, [streakEntries, todayKey]);
+
+  const gymStreak = useMemo(() => {
+    const completedDays = streakGymEntries
+      .filter((entry) => entry.status === "COMPLETED")
+      .map((entry) => chicagoDayKeyFromIso(entry.date));
+    return calculateConsecutiveStreak(completedDays, todayKey);
+  }, [streakGymEntries, todayKey]);
 
   const weeklyTrend = useMemo(() => {
     return Array.from({ length: 7 }, (_, index) => {
@@ -99,7 +173,7 @@ export function HomeOverview() {
         key,
         label: new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/Chicago" }).format(day),
         calories: monthEntries
-          .filter((entry) => entry.loggedAt.slice(0, 10) === key)
+          .filter((entry) => chicagoDayKeyFromIso(entry.loggedAt) === key)
           .reduce((sum, entry) => sum + entry.calories, 0),
       };
     });
@@ -107,12 +181,46 @@ export function HomeOverview() {
 
   const maxTrend = Math.max(1, ...weeklyTrend.map((day) => day.calories));
 
+  const recommendations = useMemo(() => {
+    const next: string[] = [];
+
+    if (todayEntries.length === 0) {
+      next.push("No nutrition data yet. Log your first meal to start daily tracking.");
+    } else {
+      if (protein < 120) {
+        next.push(`Protein is ${Math.round(protein)}g today. Add ${Math.max(0, 120 - Math.round(protein))}g to reach target.`);
+      }
+      if (calories < dailyGoal * 0.7) {
+        next.push(`Calories are ${remaining} below goal. Log your next meal when you eat.`);
+      }
+    }
+
+    if (!gymToday) {
+      next.push("No gym entry today. Mark went or missed in the Gym module.");
+    }
+
+    if (next.length === 0) {
+      next.push("You have enough data for today. Keep logging consistently.");
+    }
+
+    return next.slice(0, 3);
+  }, [todayEntries, protein, calories, dailyGoal, remaining, gymToday]);
+
+  const briefing = useMemo(() => {
+    if (todayEntries.length === 0 && !gymToday) {
+      return "No nutrition or gym data yet today. Start by logging a meal or marking gym status.";
+    }
+
+    const gymText = gymToday ? `Gym: ${gymToday.status.toLowerCase()}.` : "Gym: no entry yet.";
+    return `Calories: ${calories}/${dailyGoal}. Protein: ${Math.round(protein)}g. ${gymText}`;
+  }, [todayEntries, gymToday, calories, dailyGoal, protein]);
+
   return (
     <div className="space-y-8">
       <SectionHeading
         eyebrow="Control center"
         title={`${formatGreeting()}, Alan.`}
-        description={`You're ${underGoal} calories under your goal. This is your operating system home screen, not a tracker.`}
+        description={todayEntries.length === 0 ? "No nutrition data yet today." : `You are ${remaining} calories below your current goal.`}
         action={
           <Link
             href="/nutrition"
@@ -134,18 +242,15 @@ export function HomeOverview() {
             <div>
               <p className="text-sm text-slate-300">Today&apos;s briefing</p>
               <h2 className="mt-2 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                You&apos;re {underGoal} calories under goal.
+                {todayEntries.length === 0 ? "No data yet." : `${remaining} calories remaining.`}
               </h2>
-              <p className="mt-3 max-w-2xl text-sm text-slate-300 sm:text-base">
-                You still need <span className="text-white">{Math.max(0, 120 - protein)}g protein</span>, you haven&apos;t gone to the gym yet, and your next best move is to keep the day clean.
-              </p>
+              <p className="mt-3 max-w-2xl text-sm text-slate-300 sm:text-base">{briefing}</p>
             </div>
             <div className="flex flex-wrap gap-2">
               {[
                 "Log a meal",
-                "Start gym session",
-                "Add water",
-                "Create a task",
+                "Mark gym status",
+                "Use global command",
               ].map((label) => (
                 <span key={label} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">
                   {label}
@@ -158,8 +263,12 @@ export function HomeOverview() {
             {[
               { label: "Calories", value: `${calories}`, tone: statTone(calories, dailyGoal), icon: Flame },
               { label: "Protein", value: `${Math.round(protein)}g`, tone: statTone(protein, 120), icon: Target },
-              { label: "Gym", value: "Not yet", tone: "text-sky-200", icon: Dumbbell },
-              { label: "Water", value: "24 oz", tone: "text-cyan-200", icon: Droplets },
+              {
+                label: "Gym",
+                value: gymToday ? gymToday.status.toLowerCase() : "No data yet",
+                tone: gymToday?.status === "COMPLETED" ? "text-emerald-300" : "text-slate-300",
+                icon: Dumbbell,
+              },
             ].map((item) => {
               const Icon = item.icon;
               return (
@@ -211,9 +320,12 @@ export function HomeOverview() {
           <Surface className="p-5">
             <p className="text-xs uppercase tracking-[0.28em] text-slate-400">AI recommendations</p>
             <ul className="mt-4 space-y-3 text-sm text-slate-200">
-              <li className="flex items-start gap-3"><Brain size={16} className="mt-0.5 text-cyan-300" />Log a protein-heavy meal before dinner to stay on pace.</li>
-              <li className="flex items-start gap-3"><Dumbbell size={16} className="mt-0.5 text-sky-300" />Do a short gym session or mobility block today.</li>
-              <li className="flex items-start gap-3"><ListTodo size={16} className="mt-0.5 text-amber-300" />Capture your Discount Tire wheels task so JARVIS can remind you.</li>
+              {recommendations.map((item) => (
+                <li key={item} className="flex items-start gap-3">
+                  <Brain size={16} className="mt-0.5 text-cyan-300" />
+                  {item}
+                </li>
+              ))}
             </ul>
           </Surface>
 
@@ -222,11 +334,15 @@ export function HomeOverview() {
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-[20px] border border-white/10 bg-white/[0.04] p-4">
                 <p className="text-slate-400">Nutrition</p>
-                <p className="mt-2 text-2xl font-semibold text-white">9 days</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {nutritionStreak > 0 ? `${nutritionStreak} day${nutritionStreak === 1 ? "" : "s"}` : "No data yet"}
+                </p>
               </div>
               <div className="rounded-[20px] border border-white/10 bg-white/[0.04] p-4">
                 <p className="text-slate-400">Gym</p>
-                <p className="mt-2 text-2xl font-semibold text-white">3 days</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {gymStreak > 0 ? `${gymStreak} day${gymStreak === 1 ? "" : "s"}` : "No data yet"}
+                </p>
               </div>
             </div>
           </Surface>
@@ -236,8 +352,13 @@ export function HomeOverview() {
       <div className="grid gap-4 lg:grid-cols-3">
         {[
           { label: "Nutrition", href: "/nutrition", copy: `${todayEntries.length} meals logged today`, icon: Sparkles },
-          { label: "Gym", href: "/gym", copy: "Workout calendar and recovery", icon: Dumbbell },
-          { label: "Calendar", href: "/calendar", copy: "Unified OS timeline view", icon: CalendarDays },
+          {
+            label: "Gym",
+            href: "/gym",
+            copy: gymToday ? `Today: ${gymToday.status.toLowerCase()}` : "No gym entry today",
+            icon: Dumbbell,
+          },
+          { label: "Calendar", href: "/calendar", copy: "Coming soon", icon: CalendarDays },
         ].map((item) => {
           const Icon = item.icon;
           return (

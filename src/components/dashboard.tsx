@@ -29,14 +29,6 @@ const SUGGESTIONS = [
 ];
 
 type Toast = { id: string; text: string };
-type GymEntryView = {
-  id: string;
-  date: string;
-  status: "PLANNED" | "COMPLETED" | "SKIPPED" | "MISSED";
-  workoutType?: string | null;
-  durationMinutes?: number | null;
-  notes?: string | null;
-};
 type ConfirmationAction =
   | { type: "delete"; entryId: string; summary: string }
   | { type: "undo"; entryId: string; summary: string }
@@ -110,7 +102,6 @@ function round(value: number): number {
 export function Dashboard() {
   const [entries, setEntries] = useState<CalorieEntryRecord[]>([]);
   const [monthEntries, setMonthEntries] = useState<CalorieEntryRecord[]>([]);
-  const [gymEntries, setGymEntries] = useState<GymEntryView[]>([]);
   const [selectedDayKey, setSelectedDayKey] = useState<string>(() => chicagoDateString());
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window === "undefined") return [];
@@ -162,6 +153,9 @@ export function Dashboard() {
     () => entries.reduce((sum, entry) => sum + entry.calories, 0),
     [entries],
   );
+  const todayProtein = useMemo(() => round(entries.reduce((sum, entry) => sum + (entry.protein ?? 0), 0)), [entries]);
+  const todayCarbs = useMemo(() => round(entries.reduce((sum, entry) => sum + (entry.carbs ?? 0), 0)), [entries]);
+  const todayFat = useMemo(() => round(entries.reduce((sum, entry) => sum + (entry.fat ?? 0), 0)), [entries]);
   const remaining = Math.max(0, dailyGoal - todayCalories);
   const progressPercent = Math.min(100, Math.round((todayCalories / dailyGoal) * 100));
 
@@ -177,17 +171,25 @@ export function Dashboard() {
     return dayMap;
   }, [monthEntries]);
 
-  const gymByDay = useMemo(() => {
-    const dayMap = new Map<string, GymEntryView>();
-    for (const entry of gymEntries) {
-      dayMap.set(chicagoDayKey(new Date(entry.date)), entry);
-    }
-    return dayMap;
-  }, [gymEntries]);
-
   const monthDates = useMemo(() => monthDays(currentMonthKey), [currentMonthKey]);
   const selectedNutritionDay = nutritionByDay.get(selectedDayKey);
-  const selectedGymDay = gymByDay.get(selectedDayKey);
+
+  const nutritionTrend = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - index));
+        const key = chicagoDayKey(date);
+        const day = nutritionByDay.get(key);
+        return {
+          key,
+          label: new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/Chicago" }).format(date),
+          calories: day?.calories ?? 0,
+        };
+      }),
+    [nutritionByDay],
+  );
+  const maxTrendCalories = Math.max(1, ...nutritionTrend.map((item) => item.calories));
 
   function nutritionTone(calories: number) {
     if (calories <= 0) return "bg-slate-800/60 text-slate-400";
@@ -196,19 +198,6 @@ export function Dashboard() {
       return "bg-emerald-500/15 text-emerald-200";
     }
     return "bg-rose-500/20 text-rose-200";
-  }
-
-  function gymTone(status?: GymEntryView["status"]) {
-    switch (status) {
-      case "COMPLETED":
-        return "bg-emerald-500/20 text-emerald-200";
-      case "MISSED":
-      case "SKIPPED":
-        return "bg-rose-500/20 text-rose-200";
-      case "PLANNED":
-      default:
-        return "bg-sky-500/15 text-sky-100";
-    }
   }
 
   const pushToast = (text: string) => {
@@ -242,20 +231,12 @@ export function Dashboard() {
 
   const loadCalendarData = useCallback(async () => {
     try {
-      const [nutritionResponse, gymResponse] = await Promise.all([
-        fetch(`/api/entries?month=${currentMonthKey}`),
-        fetch(`/api/gym-entries?month=${currentMonthKey}`),
-      ]);
+      const nutritionResponse = await fetch(`/api/entries?month=${currentMonthKey}`);
 
       const nutritionPayload = (await nutritionResponse.json()) as { entries?: CalorieEntryRecord[] };
-      const gymPayload = (await gymResponse.json()) as { entries?: GymEntryView[] };
 
       if (nutritionResponse.ok) {
         setMonthEntries(nutritionPayload.entries ?? []);
-      }
-
-      if (gymResponse.ok) {
-        setGymEntries(gymPayload.entries ?? []);
       }
     } catch {
       pushToast("Unable to load calendar data.");
@@ -742,7 +723,7 @@ export function Dashboard() {
         </header>
 
         <section className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
-          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-6">
             <div className="rounded-xl bg-slate-800/60 p-3">
               <p className="text-slate-400">Consumed</p>
               <p className="text-xl font-semibold">{todayCalories}</p>
@@ -758,6 +739,14 @@ export function Dashboard() {
             <div className="rounded-xl bg-slate-800/60 p-3">
               <p className="text-slate-400">Foods Logged</p>
               <p className="text-xl font-semibold">{entries.length}</p>
+            </div>
+            <div className="rounded-xl bg-slate-800/60 p-3">
+              <p className="text-slate-400">Protein</p>
+              <p className="text-xl font-semibold">{todayProtein}g</p>
+            </div>
+            <div className="rounded-xl bg-slate-800/60 p-3">
+              <p className="text-slate-400">Carbs / Fat</p>
+              <p className="text-xl font-semibold">{todayCarbs}g / {todayFat}g</p>
             </div>
           </div>
 
@@ -776,8 +765,7 @@ export function Dashboard() {
           </div>
         </section>
 
-        <section className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
+        <section className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-sky-200">Nutrition Calendar</h2>
@@ -811,43 +799,6 @@ export function Dashboard() {
                 );
               })}
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-sky-200">Gym Calendar</h2>
-                <p className="text-xs text-slate-400">Workout status overview for {currentMonthKey}</p>
-              </div>
-              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">
-                {gymEntries.length} entries
-              </span>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-[0.2em] text-slate-500">
-              {['S','M','T','W','T','F','S'].map((day) => <div key={day}>{day}</div>)}
-            </div>
-            <div className="mt-2 grid grid-cols-7 gap-1">
-              {monthDates.map((dayKey) => {
-                const dayNumber = Number(dayKey.slice(-2));
-                const day = gymByDay.get(dayKey);
-                const tone = gymTone(day?.status);
-                return (
-                  <button
-                    key={dayKey}
-                    type="button"
-                    onClick={() => setSelectedDayKey(dayKey)}
-                    className={`min-h-16 rounded-xl border border-slate-700 p-2 text-left text-xs transition hover:border-cyan-400 ${tone}`}
-                    title={day ? `${day.status}${day.workoutType ? ` • ${day.workoutType}` : ""}` : "No workout"}
-                  >
-                    <div className="mb-1 text-sm font-semibold">{dayNumber}</div>
-                    <div className="line-clamp-2">
-                      {day ? day.status.toLowerCase() : "-"}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
         </section>
 
         <section className="grid gap-4 lg:grid-cols-2">
@@ -882,21 +833,31 @@ export function Dashboard() {
           <div className="rounded-2xl border border-sky-500/25 bg-slate-900/55 p-4 backdrop-blur-xl">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-sky-200">Gym Day Detail</h2>
-                <p className="text-xs text-slate-400">{selectedDayKey}</p>
+                <h2 className="text-lg font-semibold text-sky-200">Nutrition Trend</h2>
+                <p className="text-xs text-slate-400">Last 7 days</p>
               </div>
-              <span className={`rounded-full px-3 py-1 text-xs ${gymTone(selectedGymDay?.status)}`}>
-                {selectedGymDay?.status ?? "No workout"}
+              <span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">
+                Real data only
               </span>
             </div>
-            {selectedGymDay ? (
-              <div className="space-y-2 text-sm text-slate-300">
-                <p className="text-base text-slate-100">{selectedGymDay.workoutType ?? "Workout"}{selectedGymDay.durationMinutes ? ` • ${selectedGymDay.durationMinutes} min` : ""}</p>
-                {selectedGymDay.notes && <p className="rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2">{selectedGymDay.notes}</p>}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">No gym data on this date.</p>
-            )}
+
+            <div className="mt-4 flex h-40 items-end gap-2">
+              {nutritionTrend.map((point) => {
+                const height = Math.max(8, Math.round((point.calories / maxTrendCalories) * 100));
+                return (
+                  <div key={point.key} className="flex flex-1 flex-col items-center gap-2">
+                    <div className="flex h-28 w-full items-end rounded-xl bg-slate-800/60 p-1.5">
+                      <div
+                        className="w-full rounded-lg bg-gradient-to-b from-cyan-400 to-blue-500"
+                        style={{ height: `${height}%` }}
+                        title={point.calories > 0 ? `${point.calories} calories` : "No data"}
+                      />
+                    </div>
+                    <span className="text-[11px] text-slate-400">{point.label}</span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </section>
 

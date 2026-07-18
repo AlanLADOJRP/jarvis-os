@@ -4,7 +4,7 @@ export default function ProgressPage() {
   return (
     <ModulePage
       title="Progress"
-      description="Cross-module trends, streaks, and system health will appear here as JARVIS OS grows beyond nutrition and gym."
+      description="Coming Soon. Progress dashboards are not generated yet beyond Nutrition and Gym module data."
       primaryHref="/"
       primaryLabel="Open Dashboard"
     />

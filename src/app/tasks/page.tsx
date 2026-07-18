@@ -4,7 +4,7 @@ export default function TasksPage() {
   return (
     <ModulePage
       title="Tasks"
-      description="This module will behave like an executive assistant with priorities, reminders, and scheduling instead of a flat todo list."
+      description="Coming Soon. Task creation and reminders are not active yet."
       primaryHref="/calendar"
       primaryLabel="Open Calendar"
     />

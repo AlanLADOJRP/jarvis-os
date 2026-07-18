@@ -4,7 +4,7 @@ export default function CalendarPage() {
   return (
     <ModulePage
       title="Calendar"
-      description="The unified timeline for nutrition, gym, water, tasks, and future OS modules will live here."
+      description="Coming Soon. Unified cross-module timeline is not operational yet."
       primaryHref="/nutrition"
       primaryLabel="Open Nutrition"
     />

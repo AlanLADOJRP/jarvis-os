@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import type { ReactNode } from "react";
+import { GlobalCommand } from "@/components/shell/global-command";
 
 const navigation = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -73,21 +74,21 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           <div className="mt-6 hidden rounded-[28px] border border-white/10 bg-white/[0.04] p-4 lg:block">
             <div className="flex items-center justify-between text-xs uppercase tracking-[0.28em] text-slate-400">
-              <span>System State</span>
+              <span>System Modules</span>
               <CircleGauge size={14} />
             </div>
             <div className="mt-4 space-y-3 text-sm text-slate-200">
               <div className="flex items-center justify-between">
                 <span>Nutrition</span>
-                <span className="text-emerald-300">Stable</span>
+                <span className="text-emerald-300">Live</span>
               </div>
               <div className="flex items-center justify-between">
                 <span>Gym</span>
-                <span className="text-sky-300">Ready</span>
+                <span className="text-sky-300">Live</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>Tasks</span>
-                <span className="text-amber-300">Pending</span>
+                <span>Water, Tasks, Calendar</span>
+                <span className="text-amber-300">Coming soon</span>
               </div>
             </div>
           </div>
@@ -104,6 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </motion.div>
         </main>
       </div>
+      <GlobalCommand />
     </div>
   );
 }

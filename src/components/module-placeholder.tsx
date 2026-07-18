@@ -16,7 +16,7 @@ export function ModulePlaceholder({
   return (
     <div className="space-y-6">
       <Surface className="p-6">
-        <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Module preview</p>
+        <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Coming soon</p>
         <h1 className="mt-2 text-3xl font-semibold text-white">{title}</h1>
         <p className="mt-3 max-w-2xl text-sm text-slate-300">{description}</p>
         {primaryHref && primaryLabel ? (
@@ -32,19 +32,19 @@ export function ModulePlaceholder({
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Surface className="min-h-48 p-6">
-          <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Coming next</p>
+          <p className="text-xs uppercase tracking-[0.28em] text-slate-400">First action</p>
           <div className="mt-4 space-y-3 text-sm text-slate-300">
-            <p>Calendar-aware timelines</p>
-            <p>AI-driven summaries</p>
-            <p>Modular data views</p>
+            <p>No module data yet.</p>
+            <p>Use Nutrition for meal logging.</p>
+            <p>Use Gym to mark went or missed.</p>
           </div>
         </Surface>
         <Surface className="min-h-48 p-6">
           <p className="text-xs uppercase tracking-[0.28em] text-slate-400">Architecture</p>
           <div className="mt-4 space-y-3 text-sm text-slate-300">
-            <p>Built for future modules</p>
-            <p>Shared shell and design tokens</p>
-            <p>Reuse backend APIs and Prisma</p>
+            <p>Shell and navigation are active.</p>
+            <p>Prisma models are already in place.</p>
+            <p>API endpoints will be enabled per module.</p>
           </div>
         </Surface>
       </div>

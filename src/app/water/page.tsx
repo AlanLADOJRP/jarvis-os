@@ -4,7 +4,7 @@ export default function WaterPage() {
   return (
     <ModulePage
       title="Water"
-      description="Water tracking, reminders, and weekly averages will live here as a lightweight daily health module."
+      description="Coming Soon. Water logging is not operational yet. No ounces are tracked right now."
       primaryHref="/nutrition"
       primaryLabel="Open Nutrition"
     />

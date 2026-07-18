@@ -4,7 +4,7 @@ export default function ActivityPage() {
   return (
     <ModulePage
       title="Activity"
-      description="Apple Watch, iPhone, and Apple Health integrations will live here so steps, distance, and active minutes flow into JARVIS OS."
+      description="Coming Soon. No activity data is being ingested yet. First useful step: continue logging meals and gym outcomes so Activity can join the same timeline later."
       primaryHref="/calendar"
       primaryLabel="Open Calendar"
     />

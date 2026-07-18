@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { chicagoDateString } from "@/lib/time";
 import { getEntriesForDate, getEntriesForMonth } from "@/server/entries";
 import { getGymEntriesForMonth } from "@/server/gym";
+import { listTasks } from "@/server/tasks";
+import { getWaterTotalForDate } from "@/server/water";
 
 function previousMonthKey(monthKey: string): string {
   const [year, month] = monthKey.split("-").map(Number);
@@ -25,12 +27,16 @@ export async function GET() {
       entriesPreviousMonth,
       gymCurrentMonth,
       gymPreviousMonth,
+      tasks,
+      waterTodayOunces,
     ] = await Promise.all([
       getEntriesForDate(todayKey),
       getEntriesForMonth(currentMonthKey),
       getEntriesForMonth(previousMonth),
       getGymEntriesForMonth(currentMonthKey),
       getGymEntriesForMonth(previousMonth),
+      listTasks(),
+      getWaterTotalForDate(todayKey),
     ]);
 
     return NextResponse.json({
@@ -42,6 +48,8 @@ export async function GET() {
       entriesPreviousMonth,
       gymCurrentMonth,
       gymPreviousMonth,
+      tasks,
+      waterTodayOunces,
     });
   } catch (error) {
     return NextResponse.json(

@@ -6,17 +6,19 @@ import { motion } from "framer-motion";
 import {
   ArrowRight,
   Brain,
-  CalendarDays,
   Dumbbell,
   Flame,
   Sparkles,
   Target,
+  Workflow,
 } from "lucide-react";
 import { Surface } from "@/components/ui/surface";
 import { SectionHeading } from "@/components/ui/section-heading";
 import { useDashboardData } from "@/lib/dashboard-client";
 import type { CalorieEntryRecord } from "@/types/nutrition";
 import type { GymEntryView } from "@/types/dashboard";
+import { JarvisCommandPanel } from "@/components/jarvis-command-panel";
+import { TodoListPanel } from "@/components/todo-list-panel";
 
 const GOAL_STORAGE_KEY = "jarvis-daily-goal-v1";
 const EMPTY_ENTRIES: CalorieEntryRecord[] = [];
@@ -250,6 +252,11 @@ export function HomeOverview() {
         </div>
       </Surface>
 
+      <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+        <JarvisCommandPanel />
+        <TodoListPanel compact />
+      </div>
+
       <div className="grid gap-4 xl:grid-cols-[1.4fr_0.9fr]">
         <Surface className="p-5">
           <div className="flex items-center justify-between">
@@ -323,7 +330,7 @@ export function HomeOverview() {
             copy: gymToday ? `Today: ${gymToday.status.toLowerCase()}` : "No gym entry today",
             icon: Dumbbell,
           },
-          { label: "Calendar", href: "/calendar", copy: "Coming soon", icon: CalendarDays },
+          { label: "To-Do", href: "/tasks", copy: `${(data?.tasks ?? []).filter((task) => task.status !== "DONE" && task.status !== "CANCELED").length} open tasks`, icon: Workflow },
         ].map((item) => {
           const Icon = item.icon;
           return (

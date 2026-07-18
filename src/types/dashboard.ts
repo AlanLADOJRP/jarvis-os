@@ -1,5 +1,6 @@
 import type { CalorieEntryRecord } from "@/types/nutrition";
 import type { WorkoutType } from "@prisma/client";
+import type { TaskRecord } from "@/types/tasks";
 
 export type GymEntryView = {
   id: string;
@@ -23,4 +24,6 @@ export type DashboardDataPayload = {
   entriesPreviousMonth: CalorieEntryRecord[];
   gymCurrentMonth: GymEntryView[];
   gymPreviousMonth: GymEntryView[];
+  tasks: TaskRecord[];
+  waterTodayOunces: number;
 };

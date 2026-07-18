@@ -26,7 +26,7 @@ const navigation = [
   { href: "/gym", label: "Gym", icon: Dumbbell },
   { href: "/activity", label: "Activity", icon: Footprints },
   { href: "/water", label: "Water", icon: Waves },
-  { href: "/tasks", label: "Tasks", icon: Workflow },
+  { href: "/tasks", label: "To-Do", icon: Workflow },
   { href: "/progress", label: "Progress", icon: BarChart3 },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
   { href: "/settings", label: "Settings", icon: Settings },

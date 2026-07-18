@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GymStatus, TaskPriority, WorkoutType } from "@prisma/client";
 import type { MealType } from "@/types/nutrition";
 
 export const mealSchema = z.enum(["Breakfast", "Lunch", "Dinner", "Snack"]);
@@ -64,6 +65,50 @@ const queryHistorySchema = z.object({
   clarificationQuestion: z.string().optional(),
 });
 
+const logWaterSchema = z.object({
+  intent: z.literal("log_water"),
+  reply: z.string(),
+  ounces: z.number().int().positive(),
+  loggedAt: z.string().datetime().optional(),
+  confidence: z.number().min(0).max(1),
+  needsConfirmation: z.boolean(),
+  clarificationQuestion: z.string().optional(),
+});
+
+const logGymSchema = z.object({
+  intent: z.literal("log_gym"),
+  reply: z.string(),
+  status: z.nativeEnum(GymStatus),
+  workoutType: z.nativeEnum(WorkoutType).nullable().optional(),
+  durationMinutes: z.number().int().nonnegative().nullable().optional(),
+  cardioMinutes: z.number().int().nonnegative().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  date: z.string().datetime().optional(),
+  confidence: z.number().min(0).max(1),
+  needsConfirmation: z.boolean(),
+  clarificationQuestion: z.string().optional(),
+});
+
+const createTaskSchema = z.object({
+  intent: z.literal("create_task"),
+  reply: z.string(),
+  title: z.string().min(1),
+  description: z.string().nullable().optional(),
+  priority: z.nativeEnum(TaskPriority).optional(),
+  dueAt: z.string().datetime().nullable().optional(),
+  confidence: z.number().min(0).max(1),
+  needsConfirmation: z.boolean(),
+  clarificationQuestion: z.string().optional(),
+});
+
+const queryTasksSchema = z.object({
+  intent: z.literal("query_tasks"),
+  reply: z.string(),
+  confidence: z.number().min(0).max(1),
+  needsConfirmation: z.boolean(),
+  clarificationQuestion: z.string().optional(),
+});
+
 const undoLastSchema = z.object({
   intent: z.literal("undo_last"),
   reply: z.string(),
@@ -86,6 +131,10 @@ export const assistantActionSchema = z.discriminatedUnion("intent", [
   updateEntrySchema,
   queryTodaySchema,
   queryHistorySchema,
+  logWaterSchema,
+  logGymSchema,
+  createTaskSchema,
+  queryTasksSchema,
   undoLastSchema,
   unknownSchema,
 ]);

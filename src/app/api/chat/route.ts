@@ -1,3 +1,4 @@
+import { GymStatus, TaskPriority, WorkoutType } from "@prisma/client";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -32,6 +33,75 @@ const requestSchema = z.object({
 
 function fallbackAction(message: string, catalog: NutritionItem[]) {
   const lower = message.toLowerCase();
+
+  const waterMatch = lower.match(/(\d+(?:\.\d+)?)\s*(oz|ounce|ounces)\b/);
+  const cupsMatch = lower.match(/(\d+(?:\.\d+)?)\s*(cup|cups)\b/);
+  const bottleMatch = lower.match(/(\d+(?:\.\d+)?)\s*(bottle|bottles)\b/);
+  const waterIntent = /(drank|drink|water|hydration)/.test(lower);
+  if (waterIntent) {
+    const ounces = waterMatch
+      ? Math.round(Number(waterMatch[1]))
+      : cupsMatch
+        ? Math.round(Number(cupsMatch[1]) * 8)
+        : bottleMatch
+          ? Math.round(Number(bottleMatch[1]) * 16)
+          : 8;
+
+    return {
+      intent: "log_water",
+      reply: `I can log ${ounces} oz of water.`,
+      ounces,
+      confidence: 0.93,
+      needsConfirmation: false,
+    };
+  }
+
+  if (/(went to the gym|worked out|gym today|did cardio|lifted)/.test(lower)) {
+    return {
+      intent: "log_gym",
+      reply: "I can log a completed gym session for today.",
+      status: GymStatus.COMPLETED,
+      workoutType: /(cardio|run|bike)/.test(lower) ? WorkoutType.CARDIO : WorkoutType.OTHER,
+      confidence: 0.92,
+      needsConfirmation: false,
+    };
+  }
+
+  if (/(missed the gym|skipped the gym|didn t go to the gym|didn't go to the gym)/.test(lower)) {
+    return {
+      intent: "log_gym",
+      reply: "I can mark today as a missed gym day.",
+      status: GymStatus.MISSED,
+      workoutType: null,
+      confidence: 0.91,
+      needsConfirmation: false,
+    };
+  }
+
+  if (/(what are my tasks|show my tasks|list my tasks|todo list|to do list)/.test(lower)) {
+    return {
+      intent: "query_tasks",
+      reply: "I can pull your current to-do list.",
+      confidence: 0.92,
+      needsConfirmation: false,
+    };
+  }
+
+  if (/(remind me to|add task|todo|to do)/.test(lower)) {
+    const title = message
+      .replace(/^(remind me to|add task|todo|to do)\s*/i, "")
+      .trim();
+
+    return {
+      intent: "create_task",
+      reply: `I can add "${title || "New task"}" to your to-do list.`,
+      title: title || "New task",
+      priority: TaskPriority.MEDIUM,
+      confidence: title ? 0.91 : 0.72,
+      needsConfirmation: !title,
+      clarificationQuestion: title ? undefined : "What should the task say?",
+    };
+  }
 
   if (lower.includes("undo")) {
     return {
@@ -153,11 +223,15 @@ export async function POST(request: Request) {
     const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
     const systemPrompt = [
-      "You are a calorie tracking intent parser for JARVIS Calories.",
+      "You are a structured intent parser for JARVIS OS.",
       "Return only a JSON object matching the required schema.",
       "Never invent nutrition values when an item exists in provided catalog.",
       "Use catalog values exactly and compute quantities like double/triple/2x/half.",
       "Prefer one summarized entry for restaurant bowls.",
+      "Support gym logging, water logging, and task creation when the user clearly asks for them.",
+      "For water, convert 1 cup to 8 ounces and 1 bottle to 16 ounces unless the user provides ounces.",
+      "For gym, use COMPLETED when the user says they went or worked out, and MISSED when they say they skipped or missed.",
+      "For tasks, return concise task titles without extra filler.",
       "If confidence < 0.8, set needsConfirmation=true and include clarificationQuestion.",
       "Do not claim an entry was saved; only propose actions.",
       "Meal windows in America/Chicago: Breakfast 4:00-10:59, Lunch 11:00-15:59, Dinner 16:00-21:59, Snack 22:00-3:59.",
@@ -172,6 +246,10 @@ export async function POST(request: Request) {
         catalog: mergedCatalog,
         requiredIntents: [
           "log_food",
+          "log_water",
+          "log_gym",
+          "create_task",
+          "query_tasks",
           "delete_entry",
           "update_entry",
           "query_today",

@@ -717,8 +717,8 @@ export function Dashboard() {
         <header className="rounded-2xl border border-sky-500/30 bg-slate-900/55 p-4 backdrop-blur-xl shadow-[0_0_40px_rgba(56,189,248,0.12)]">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-semibold tracking-wide text-sky-200">JARVIS OS</h1>
-              <p className="text-sm text-slate-300">Nutrition + Gym control center • {formatDisplayDate()}</p>
+              <h1 className="text-2xl font-semibold tracking-wide text-sky-200">Nutrition</h1>
+              <p className="text-sm text-slate-300">Intelligent meal capture • {formatDisplayDate()}</p>
             </div>
             <div className="flex gap-2">
               <button
